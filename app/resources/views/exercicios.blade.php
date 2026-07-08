@@ -36,30 +36,44 @@
 @section('content')
 <div x-data="exerciseBrowser()" class="px-4 py-4">
 
-    {{-- Écorché frente e verso (items-start evita que a coluna mais baixa
-         seja esticada até a altura da outra, desalinhando os hotspots) --}}
-    <div class="grid grid-cols-2 items-start gap-3">
-        @foreach ($ecorche as $view => $data)
-            <div class="relative overflow-hidden rounded-2xl bg-black"
-                 style="aspect-ratio: {{ $data['ratio'] }}">
-                <img src="{{ asset('images/ecorche-'.$view.'.png') }}" alt="Écorché {{ $view }}"
-                     class="h-full w-full object-contain"
-                     onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'">
-                <div class="absolute inset-0 hidden flex-col items-center justify-center text-center text-xs text-slate-400" style="display:none">
-                    <span class="text-3xl">🧍</span>
-                    <span class="mt-1 px-2">Écorché {{ $view }}<br>(gerar imagem)</span>
-                </div>
-                @foreach ($data['spots'] as [$muscle, $left, $top, $w, $h])
-                    <button type="button"
-                            @click="select('{{ $muscle }}', '{{ $muscles[$muscle] }}')"
-                            :class="{ 'is-active': muscle === '{{ $muscle }}' }"
-                            class="hotspot"
-                            title="{{ $muscles[$muscle] }}"
-                            style="left: {{ $left }}%; top: {{ $top }}%; width: {{ $w }}%; height: {{ $h }}%"></button>
-                @endforeach
-                <span class="absolute bottom-1 left-0 right-0 text-center text-[10px] font-medium uppercase tracking-wide text-white/50">{{ $view }}</span>
+    {{-- Écorché: mostra frente OU costas (um de cada vez, tamanho consistente) --}}
+    <div x-data="{ view: 'frente' }">
+        {{-- Alternância Frente / Costas --}}
+        <div class="mb-3 flex justify-center">
+            <div class="inline-flex rounded-full bg-slate-100 p-1">
+                <button type="button" @click="view = 'frente'"
+                        :class="view === 'frente' ? 'bg-blue-600 text-white shadow' : 'text-slate-500'"
+                        class="rounded-full px-6 py-1.5 text-sm font-medium transition">Frente</button>
+                <button type="button" @click="view = 'verso'"
+                        :class="view === 'verso' ? 'bg-blue-600 text-white shadow' : 'text-slate-500'"
+                        class="rounded-full px-6 py-1.5 text-sm font-medium transition">Costas</button>
             </div>
-        @endforeach
+        </div>
+
+        {{-- Figura única, centralizada e com largura fixa --}}
+        <div class="mx-auto w-full max-w-[230px]">
+            @foreach ($ecorche as $viewKey => $data)
+                <div x-show="view === '{{ $viewKey }}'" x-cloak
+                     class="relative overflow-hidden rounded-2xl bg-black"
+                     style="aspect-ratio: {{ $data['ratio'] }}">
+                    <img src="{{ asset('images/ecorche-'.$viewKey.'.png') }}" alt="Écorché {{ $viewKey }}"
+                         class="h-full w-full object-contain"
+                         onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'">
+                    <div class="absolute inset-0 hidden flex-col items-center justify-center text-center text-xs text-slate-400" style="display:none">
+                        <span class="text-3xl">🧍</span>
+                        <span class="mt-1 px-2">Écorché {{ $viewKey }}<br>(gerar imagem)</span>
+                    </div>
+                    @foreach ($data['spots'] as [$muscle, $left, $top, $w, $h])
+                        <button type="button"
+                                @click="select('{{ $muscle }}', '{{ $muscles[$muscle] }}')"
+                                :class="{ 'is-active': muscle === '{{ $muscle }}' }"
+                                class="hotspot"
+                                title="{{ $muscles[$muscle] }}"
+                                style="left: {{ $left }}%; top: {{ $top }}%; width: {{ $w }}%; height: {{ $h }}%"></button>
+                    @endforeach
+                </div>
+            @endforeach
+        </div>
     </div>
 
     {{-- Chips de músculos --}}
