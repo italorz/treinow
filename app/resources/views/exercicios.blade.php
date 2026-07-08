@@ -36,8 +36,9 @@
 @section('content')
 <div x-data="exerciseBrowser()" class="px-4 py-4">
 
-    {{-- Écorché frente e verso --}}
-    <div class="grid grid-cols-2 gap-3">
+    {{-- Écorché frente e verso (items-start evita que a coluna mais baixa
+         seja esticada até a altura da outra, desalinhando os hotspots) --}}
+    <div class="grid grid-cols-2 items-start gap-3">
         @foreach ($ecorche as $view => $data)
             <div class="relative overflow-hidden rounded-2xl bg-black"
                  style="aspect-ratio: {{ $data['ratio'] }}">
