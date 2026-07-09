@@ -10,6 +10,9 @@
     $val = fn ($field, $default = null) => old($field, $prefs->{$field} ?? $default);
     $arr = fn ($field) => old($field, $prefs->{$field} ?? []) ?: [];
 
+    // Chaves de equipamento exibidas como checkbox (todas exceto "outro").
+    $equipmentKeys = collect($equipmentOptions)->keys()->reject(fn ($k) => $k === 'outro')->values()->all();
+
     $restricoesOptions = [
         'ombro' => 'Ombro', 'joelho' => 'Joelho', 'lombar' => 'Lombar',
         'punho' => 'Punho', 'cotovelo' => 'Cotovelo', 'quadril' => 'Quadril',
@@ -32,7 +35,7 @@
 
     <h3 class="mt-5 mb-2 text-sm font-semibold text-slate-900">Gerar treino customizado</h3>
 
-    <form method="POST" action="{{ route('perfil.update') }}" class="space-y-4">
+    <form method="POST" action="{{ route('perfil.update') }}" class="space-y-4" x-data="{ submitting: false }">
         @csrf
 
         <div class="grid grid-cols-2 gap-3">
@@ -76,6 +79,19 @@
                 </select>
             </label>
 
+            {{-- Recomendações dias × duração (discreto) --}}
+            <div class="col-span-2 rounded-xl bg-slate-50 px-3 py-2">
+                <p class="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Recomendações</p>
+                <table class="w-full text-[11px] leading-relaxed text-slate-500">
+                    <tbody>
+                        <tr><td class="pr-2 font-medium text-slate-600">7 dias</td><td>20 a 30 min de musculação</td></tr>
+                        <tr><td class="pr-2 font-medium text-slate-600">5 dias</td><td>30 a 50 min de musculação</td></tr>
+                        <tr><td class="pr-2 font-medium text-slate-600">4 dias</td><td>50 a 70 min de musculação</td></tr>
+                        <tr><td class="pr-2 font-medium text-slate-600">3 dias</td><td>70 a 90 min de musculação</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
             {{-- Sexo --}}
             <label class="block">
                 <span class="mb-1 block text-xs font-medium text-slate-600">Sexo</span>
@@ -105,30 +121,53 @@
             </label>
         </div>
 
-        {{-- Preferência / Local --}}
-        <div>
-            <span class="mb-1 block text-xs font-medium text-slate-600">Preferência</span>
-            <div class="grid grid-cols-2 gap-2">
-                @foreach (['academia' => 'Academia', 'casa' => 'Casa'] as $k => $v)
-                    <label class="cursor-pointer">
-                        <input type="radio" name="local" value="{{ $k }}" class="peer sr-only" @checked($val('local', 'academia') === $k)>
-                        <span class="block rounded-xl border border-slate-200 py-2 text-center text-sm font-medium text-slate-600 peer-checked:border-blue-600 peer-checked:bg-blue-600 peer-checked:text-white">{{ $v }}</span>
-                    </label>
-                @endforeach
-            </div>
-        </div>
+        {{-- Preferência / Local + Equipamentos: uma academia tem todo equipamento,
+             então marcamos tudo automaticamente; em casa o usuário escolhe. --}}
+        <div x-data="{
+                local: @js($val('local', 'academia')),
+                equip: @js(array_values($arr('equipamentos'))),
+                allEquip: @js($equipmentKeys),
+                setLocal(v) {
+                    if (v === 'academia') {
+                        this.equip = [...this.allEquip];
+                    } else if (v === 'casa' && this.local === 'academia') {
+                        this.equip = [];
+                    }
+                    this.local = v;
+                },
+            }"
+            x-init="if (local === 'academia' && equip.length === 0) { equip = [...allEquip] }">
 
-        {{-- Equipamentos disponíveis --}}
-        <div>
-            <span class="mb-1 block text-xs font-medium text-slate-600">Equipamentos disponíveis</span>
-            <div class="grid grid-cols-2 gap-2">
-                @foreach ($equipmentOptions as $k => $v)
-                    @continue($k === 'outro')
-                    <label class="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
-                        <input type="checkbox" name="equipamentos[]" value="{{ $k }}" @checked(in_array($k, $arr('equipamentos'))) class="rounded text-blue-600">
-                        {{ $v }}
+            <div>
+                <span class="mb-1 block text-xs font-medium text-slate-600">Preferência</span>
+                <div class="grid grid-cols-2 gap-2">
+                    <label class="cursor-pointer">
+                        <input type="radio" name="local" value="academia" class="peer sr-only"
+                               :checked="local === 'academia'" @change="setLocal('academia')">
+                        <span class="block rounded-xl border border-slate-200 py-2 text-center text-sm font-medium text-slate-600 peer-checked:border-blue-600 peer-checked:bg-blue-600 peer-checked:text-white">Academia</span>
                     </label>
-                @endforeach
+                    <label class="cursor-pointer">
+                        <input type="radio" name="local" value="casa" class="peer sr-only"
+                               :checked="local === 'casa'" @change="setLocal('casa')">
+                        <span class="block rounded-xl border border-slate-200 py-2 text-center text-sm font-medium text-slate-600 peer-checked:border-blue-600 peer-checked:bg-blue-600 peer-checked:text-white">Casa</span>
+                    </label>
+                </div>
+                <p class="mt-1 text-[11px] text-slate-400" x-show="local === 'academia'" x-cloak>
+                    Academia selecionada — todos os equipamentos foram marcados automaticamente.
+                </p>
+            </div>
+
+            <div class="mt-4">
+                <span class="mb-1 block text-xs font-medium text-slate-600">Equipamentos disponíveis</span>
+                <div class="grid grid-cols-2 gap-2">
+                    @foreach ($equipmentOptions as $k => $v)
+                        @continue($k === 'outro')
+                        <label class="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                            <input type="checkbox" name="equipamentos[]" value="{{ $k }}" x-model="equip" class="rounded text-blue-600">
+                            {{ $v }}
+                        </label>
+                    @endforeach
+                </div>
             </div>
         </div>
 
@@ -174,12 +213,15 @@
 
         {{-- Ações --}}
         <div class="space-y-2 pt-2">
-            <button type="submit" class="w-full rounded-xl bg-slate-100 py-3 text-sm font-semibold text-slate-700">
+            <button type="submit" :disabled="submitting"
+                    class="w-full rounded-xl bg-slate-100 py-3 text-sm font-semibold text-slate-700 disabled:opacity-50">
                 Salvar preferências
             </button>
             <button type="submit" formaction="{{ route('perfil.generate') }}"
-                    class="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-3.5 text-sm font-semibold text-white shadow-lg shadow-blue-600/30">
-                Gerar treino customizado ✦
+                    @click="submitting = true" :disabled="submitting"
+                    class="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-3.5 text-sm font-semibold text-white shadow-lg shadow-blue-600/30 disabled:opacity-60">
+                <span x-show="!submitting">Gerar treino customizado ✦</span>
+                <span x-show="submitting" x-cloak>Gerando treino… isso pode levar até 30s</span>
             </button>
             <p class="text-center text-[11px] text-slate-400">Dados estruturados para geração com IA (Gemini)</p>
         </div>

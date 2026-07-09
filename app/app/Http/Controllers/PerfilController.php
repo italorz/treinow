@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Exercise;
 use App\Models\User;
+use App\Models\UserPreference;
 use App\Models\WorkoutDay;
 use App\Services\GeminiService;
 use Illuminate\Http\Request;
@@ -69,12 +70,13 @@ class PerfilController extends Controller
             return redirect()->route('perfil')->with('error', 'Configure a GEMINI_API_KEY no arquivo .env para gerar o treino.');
         }
 
-        $catalog = Exercise::query()
-            ->whereNotNull('muscle_group')
-            ->where('is_stretch', false)
-            ->when(! empty($prefs->equipamentos), fn ($q) => $q->whereIn('equipment', $prefs->equipamentos))
-            ->limit(400)
-            ->get(['id', 'slug', 'name', 'muscle_group', 'equipment']);
+        // O PHP embutido (php artisan serve) mata o script em 30s por padrão,
+        // independente do timeout do client HTTP do Gemini (120s) — sem isso,
+        // a chamada é interrompida por dentro do curl antes do próprio Guzzle
+        // conseguir estourar o timeout dele e retornar um erro tratável.
+        set_time_limit(150);
+
+        $catalog = $this->buildCatalog($prefs);
 
         try {
             $plan = $gemini->generateWorkout($prefs, $catalog);
@@ -85,6 +87,35 @@ class PerfilController extends Controller
         $this->persistPlan($user, $plan);
 
         return redirect()->route('semana')->with('status', 'Treino customizado gerado com sucesso!');
+    }
+
+    /**
+     * Monta um catálogo compacto e balanceado por grupo muscular (em vez de um
+     * corte cru por id) para caber num prompt rápido e garantir variedade —
+     * "pernas" sozinho tem ~240 dos 965 exercícios e dominaria um limit() simples.
+     */
+    private function buildCatalog(UserPreference $prefs)
+    {
+        $equipamentos = ! empty($prefs->equipamentos) ? $prefs->equipamentos : array_keys(Exercise::EQUIPMENT);
+        $prioritarios = $prefs->musculos_prioritarios ?? [];
+
+        $catalog = collect();
+
+        foreach (array_keys(Exercise::MUSCLES) as $muscle) {
+            $take = in_array($muscle, $prioritarios, true) ? 20 : 10;
+
+            $items = Exercise::query()
+                ->where('muscle_group', $muscle)
+                ->where('is_stretch', false)
+                ->whereIn('equipment', $equipamentos)
+                ->inRandomOrder()
+                ->limit($take)
+                ->get(['id', 'slug', 'name', 'muscle_group', 'equipment']);
+
+            $catalog = $catalog->merge($items);
+        }
+
+        return $catalog;
     }
 
     private function persistPlan(User $user, array $plan): void
