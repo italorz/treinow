@@ -33,7 +33,7 @@ class WorkoutDay extends Model
     public function exercises(): BelongsToMany
     {
         return $this->belongsToMany(Exercise::class, 'workout_day_exercise')
-            ->withPivot(['id', 'position', 'sets', 'reps', 'rest_seconds', 'note', 'is_done'])
+            ->withPivot(['id', 'position', 'sets', 'reps', 'rest_seconds', 'note', 'is_done', 'reserve_exercise_id'])
             ->withTimestamps()
             ->orderBy('workout_day_exercise.position');
     }

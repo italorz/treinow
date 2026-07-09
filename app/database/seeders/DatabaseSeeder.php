@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use App\Models\Exercise;
 use App\Models\User;
 use App\Models\WorkoutDay;
+use App\Services\ExerciseSwapService;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
@@ -15,6 +16,8 @@ class DatabaseSeeder extends Seeder
 
     public function run(): void
     {
+        $swap = new ExerciseSwapService();
+
         $user = User::updateOrCreate(
             ['email' => 'lucas.silva@email.com'],
             ['name' => 'Lucas Silva', 'password' => Hash::make('senha1234')]
@@ -77,13 +80,27 @@ class DatabaseSeeder extends Seeder
                 ->limit(6)
                 ->get();
 
+            // Reserva por exercício (mesmo alvo/equipamento halter), evitando
+            // repetir dentro do dia qualquer exercício já usado como principal
+            // ou já escalado como reserva de outro exercício.
+            $usedIds = $exercises->pluck('id')->all();
+
             $position = 1;
             foreach ($exercises as $exercise) {
+                $reserve = $swap->alternatives($exercise, 6)
+                    ->reject(fn ($alt) => in_array($alt->id, $usedIds, true))
+                    ->first();
+
+                if ($reserve) {
+                    $usedIds[] = $reserve->id;
+                }
+
                 $day->exercises()->attach($exercise->id, [
                     'position' => $position++,
                     'sets' => 4,
                     'reps' => '10-12',
                     'rest_seconds' => 60,
+                    'reserve_exercise_id' => $reserve?->id,
                 ]);
             }
         }

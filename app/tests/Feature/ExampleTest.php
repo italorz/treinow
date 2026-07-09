@@ -72,4 +72,53 @@ class ExampleTest extends TestCase
             ->assertOk()
             ->assertJsonPath('is_done', true);
     }
+
+    public function test_swap_toggles_between_exercise_and_predefined_reserve(): void
+    {
+        $user = User::current();
+        $day = WorkoutDay::create(['user_id' => $user->id, 'weekday' => now()->dayOfWeek, 'title' => 'Teste']);
+        $primary = $this->makeExercise(['equipment' => 'maquina']);
+        $reserve = $this->makeExercise(['equipment' => 'halter']);
+        $day->exercises()->attach($primary->id, ['position' => 1, 'reserve_exercise_id' => $reserve->id]);
+        $pivotId = $day->exercises()->first()->pivot->id;
+
+        // Primeira troca: alterna para a reserva pré-definida.
+        $this->postJson("/hoje/{$pivotId}/trocar")
+            ->assertOk()
+            ->assertJsonPath('exercise.id', $reserve->id)
+            ->assertJsonPath('reserve.id', $primary->id);
+
+        $this->assertDatabaseHas('workout_day_exercise', [
+            'id' => $pivotId,
+            'exercise_id' => $reserve->id,
+            'reserve_exercise_id' => $primary->id,
+        ]);
+
+        // Segunda troca: alterna de volta ao original (par fixo, sem opções extras).
+        $this->postJson("/hoje/{$pivotId}/trocar")
+            ->assertOk()
+            ->assertJsonPath('exercise.id', $primary->id)
+            ->assertJsonPath('reserve.id', $reserve->id);
+    }
+
+    public function test_swap_without_reserve_promotes_chosen_alternative(): void
+    {
+        $user = User::current();
+        $day = WorkoutDay::create(['user_id' => $user->id, 'weekday' => now()->dayOfWeek, 'title' => 'Teste']);
+        $primary = $this->makeExercise(['equipment' => 'maquina']);
+        $alternative = $this->makeExercise(['equipment' => 'halter']);
+        $day->exercises()->attach($primary->id, ['position' => 1]);
+        $pivotId = $day->exercises()->first()->pivot->id;
+
+        $this->postJson("/hoje/{$pivotId}/trocar", ['exercise_id' => $alternative->id])
+            ->assertOk()
+            ->assertJsonPath('exercise.id', $alternative->id)
+            ->assertJsonPath('reserve.id', $primary->id);
+
+        $this->assertDatabaseHas('workout_day_exercise', [
+            'id' => $pivotId,
+            'exercise_id' => $alternative->id,
+            'reserve_exercise_id' => $primary->id,
+        ]);
+    }
 }

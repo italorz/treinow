@@ -97,10 +97,20 @@ Alpine.data('todayWorkout', () => ({
     alternatives: [],
     loadingAlt: false,
 
-    async openSwap(pivotId, exerciseId, exerciseName) {
+    async openSwap(pivotId, exerciseId, exerciseName, reserve = null) {
         this.swapOpen = true;
         this.swapPivotId = pivotId;
         this.swapFor = exerciseName;
+
+        if (reserve) {
+            // Reserva já definida (pela IA ou por uma troca anterior): é a
+            // única opção de troca, sem precisar buscar nada.
+            this.alternatives = [reserve];
+            this.loadingAlt = false;
+            return;
+        }
+
+        // Sem reserva pré-definida (dia antigo/manual): busca alternativas.
         this.alternatives = [];
         this.loadingAlt = true;
         try {

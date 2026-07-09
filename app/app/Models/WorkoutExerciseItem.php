@@ -25,6 +25,15 @@ class WorkoutExerciseItem extends Model
         return $this->belongsTo(Exercise::class);
     }
 
+    /**
+     * Reserva específica deste slot (mesmo alvo muscular exato do exercício
+     * ativo). "Trocar" alterna exercise_id <-> reserve_exercise_id.
+     */
+    public function reserveExercise(): BelongsTo
+    {
+        return $this->belongsTo(Exercise::class, 'reserve_exercise_id');
+    }
+
     public function workoutDay(): BelongsTo
     {
         return $this->belongsTo(WorkoutDay::class);

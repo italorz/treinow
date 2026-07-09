@@ -61,7 +61,7 @@
                             <span>{{ $item->reps }} repetições</span>
                             <span class="capitalize">{{ $ex->muscle_label }}</span>
                         </div>
-                        <button @click="openSwap({{ $item->id }}, {{ $ex->id }}, '{{ addslashes($ex->name) }}')"
+                        <button @click="openSwap({{ $item->id }}, {{ $ex->id }}, '{{ addslashes($ex->name) }}', @js($item->reserveExercise))"
                                 class="mt-2 inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50">
                             ⇄ Trocar
                         </button>
@@ -85,14 +85,14 @@
             <div class="flex items-center gap-2">
                 <span class="rounded-lg bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">✦ Substituição inteligente</span>
             </div>
-            <p class="mt-3 text-sm text-slate-500">Trocando <span class="font-semibold text-slate-800" x-text="swapFor"></span> por uma alternativa com halter:</p>
+            <p class="mt-3 text-sm text-slate-500">Trocando <span class="font-semibold text-slate-800" x-text="swapFor"></span> pela reserva:</p>
 
             <template x-if="loadingAlt">
                 <p class="py-6 text-center text-sm text-slate-400">Buscando alternativas…</p>
             </template>
 
             <template x-if="!loadingAlt && alternatives.length === 0">
-                <p class="py-6 text-center text-sm text-slate-400">Nenhuma alternativa com halter encontrada.</p>
+                <p class="py-6 text-center text-sm text-slate-400">Nenhuma reserva disponível para este exercício.</p>
             </template>
 
             <div class="mt-3 max-h-80 space-y-2 overflow-y-auto">

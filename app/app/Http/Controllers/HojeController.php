@@ -21,7 +21,7 @@ class HojeController extends Controller
 
         $items = collect();
         if ($day) {
-            $items = WorkoutExerciseItem::with('exercise')
+            $items = WorkoutExerciseItem::with(['exercise', 'reserveExercise'])
                 ->where('workout_day_id', $day->id)
                 ->orderBy('position')
                 ->get();
@@ -36,15 +36,30 @@ class HojeController extends Controller
 
     public function swap(Request $request, WorkoutExerciseItem $item)
     {
-        $data = $request->validate([
-            'exercise_id' => ['required', 'exists:exercises,id'],
-        ]);
+        if ($item->reserve_exercise_id) {
+            // Já existe uma reserva definida (pela IA, ou promovida por uma
+            // troca anterior): apenas alterna os dois — o exercício que sai
+            // vira a nova reserva, permitindo trocar de volta depois.
+            [$item->exercise_id, $item->reserve_exercise_id] = [$item->reserve_exercise_id, $item->exercise_id];
+            $item->save();
+        } else {
+            // Sem reserva pré-definida (dia antigo/manual): usa a alternativa
+            // escolhida na hora e a promove a reserva, habilitando alternar.
+            $data = $request->validate([
+                'exercise_id' => ['required', 'exists:exercises,id'],
+            ]);
 
-        $item->update(['exercise_id' => $data['exercise_id']]);
+            $item->reserve_exercise_id = $item->exercise_id;
+            $item->exercise_id = $data['exercise_id'];
+            $item->save();
+        }
+
+        $item->refresh();
 
         return response()->json([
             'ok' => true,
-            'exercise' => $item->fresh()->exercise,
+            'exercise' => $item->exercise,
+            'reserve' => $item->reserveExercise,
         ]);
     }
 

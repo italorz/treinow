@@ -142,17 +142,33 @@ class PerfilController extends Controller
 
                 $day->exercises()->detach();
 
+                // Garante unicidade de exercícios (principal ou reserva) dentro
+                // do dia como rede de segurança, caso o Gemini não siga à risca
+                // a regra de não repetir slug — mesmo instruído para isso.
+                $usedIds = [];
                 $position = 1;
                 foreach ($dayData['exercises'] ?? [] as $ex) {
                     $exerciseId = $slugToId[$ex['slug'] ?? ''] ?? null;
-                    if (! $exerciseId) {
+                    if (! $exerciseId || in_array($exerciseId, $usedIds, true)) {
                         continue;
                     }
+
+                    $reserveId = $slugToId[$ex['reserve_slug'] ?? ''] ?? null;
+                    if ($reserveId && ($reserveId === $exerciseId || in_array($reserveId, $usedIds, true))) {
+                        $reserveId = null;
+                    }
+
+                    $usedIds[] = $exerciseId;
+                    if ($reserveId) {
+                        $usedIds[] = $reserveId;
+                    }
+
                     $day->exercises()->attach($exerciseId, [
                         'position' => $position++,
                         'sets' => $ex['sets'] ?? 3,
                         'reps' => $ex['reps'] ?? '10-12',
                         'rest_seconds' => $ex['rest_seconds'] ?? 60,
+                        'reserve_exercise_id' => $reserveId,
                     ]);
                 }
             }

@@ -149,6 +149,20 @@ class GeminiService
         Respeite os equipamentos disponíveis e priorize os músculos prioritários e o objetivo.
         Cada dia de treino deve ter de 5 a 8 exercícios com sets, reps e descanso adequados ao nível.
 
+        Para CADA exercício, escolha também um "reserve_slug": um exercício reserva do catálogo
+        que treine EXATAMENTE o mesmo alvo específico do exercício principal — julgue pelo NOME
+        do exercício, não apenas pelo grupo muscular amplo. Exemplo: se o principal é uma elevação
+        lateral (mira o deltoide lateral), a reserva também deve ser uma elevação lateral — nunca
+        uma elevação frontal, um desenvolvimento ou uma remada, mesmo sendo todos do grupo "ombro".
+        Prefira uma reserva com equipamento DIFERENTE do principal (ex.: principal de máquina, barra
+        ou cabo → reserva com halter), para que a troca realmente dê uma alternativa útil. Se não
+        houver no catálogo um exercício que treine o mesmo alvo específico, omita "reserve_slug".
+
+        REGRA CRÍTICA DE UNICIDADE: dentro de um MESMO DIA, nenhum "slug" pode se repetir — nem
+        entre exercícios principais, nem entre reservas, nem cruzando principal com reserva. Cada
+        exercício (slug) só pode aparecer uma única vez no dia inteiro, seja como principal ou
+        como reserva de outro.
+
         Preferências do usuário:
         {$prefsText}
 
@@ -175,6 +189,7 @@ class GeminiService
                                 'sets' => ['type' => 'INTEGER'],
                                 'reps' => ['type' => 'STRING'],
                                 'rest_seconds' => ['type' => 'INTEGER'],
+                                'reserve_slug' => ['type' => 'STRING'],
                             ],
                             'required' => ['slug'],
                         ],
