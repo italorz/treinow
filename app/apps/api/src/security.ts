@@ -12,7 +12,7 @@ export async function createSession(reply: FastifyReply, user: SessionUser) {
   const id = randomBytes(32).toString("base64url");
   const csrf = randomBytes(24).toString("base64url");
   await redis.set(`session:${id}`, JSON.stringify(user), "EX", sessionTtl);
-  const secure = config.NODE_ENV === "production";
+  const secure = config.PUBLIC_URL.startsWith("https://");
   reply.setCookie("tw_session", `${id}.${sign(id, config.SESSION_SECRET)}`, {
     httpOnly: true, secure, sameSite: "strict", path: "/", maxAge: sessionTtl
   });
