@@ -3,16 +3,25 @@ import { Search } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 
+// Coordenadas em % de cada metade quadrada (887x887) do sprite ecorche.png,
+// medidas pixel a pixel. O contêiner .anatomy tem aspect-ratio 1/1 igual ao da
+// metade, então estes percentuais mapeiam 1:1 em qualquer resolução.
 const spots: Record<string, { muscle: string; label: string; x: number; y: number; w: number; h: number }[]> = {
   front: [
-    { muscle: "peitoral", label: "Peitoral", x: 39, y: 19, w: 22, h: 10 }, { muscle: "ombro", label: "Ombros", x: 29, y: 18, w: 11, h: 9 },
-    { muscle: "biceps", label: "Bíceps", x: 25, y: 27, w: 10, h: 12 }, { muscle: "core", label: "Core", x: 42, y: 28, w: 17, h: 18 },
-    { muscle: "pernas", label: "Pernas", x: 37, y: 49, w: 26, h: 22 }, { muscle: "panturrilha", label: "Panturrilhas", x: 38, y: 72, w: 24, h: 16 }
+    { muscle: "peitoral", label: "Peitoral", x: 48.5, y: 18.5, w: 21, h: 10 },
+    { muscle: "ombro", label: "Ombros", x: 45, y: 16.5, w: 7.5, h: 8.5 }, { muscle: "ombro", label: "Ombros", x: 65.5, y: 16.5, w: 7.5, h: 8.5 },
+    { muscle: "biceps", label: "Bíceps", x: 43.5, y: 24.5, w: 7, h: 12 }, { muscle: "biceps", label: "Bíceps", x: 67, y: 24.5, w: 7, h: 12 },
+    { muscle: "core", label: "Core", x: 51.5, y: 29, w: 15, h: 19 },
+    { muscle: "pernas", label: "Pernas", x: 48.5, y: 49, w: 20.5, h: 19 },
+    { muscle: "panturrilha", label: "Panturrilhas", x: 48.5, y: 69, w: 20, h: 19 }
   ],
   back: [
-    { muscle: "trapezio", label: "Trapézio", x: 39, y: 14, w: 22, h: 12 }, { muscle: "costas", label: "Costas", x: 34, y: 23, w: 32, h: 20 },
-    { muscle: "triceps", label: "Tríceps", x: 24, y: 28, w: 10, h: 14 }, { muscle: "gluteos", label: "Glúteos", x: 38, y: 45, w: 24, h: 14 },
-    { muscle: "pernas", label: "Pernas", x: 37, y: 56, w: 26, h: 18 }, { muscle: "panturrilha", label: "Panturrilhas", x: 38, y: 74, w: 24, h: 14 }
+    { muscle: "trapezio", label: "Trapézio", x: 33, y: 15.5, w: 14, h: 9 },
+    { muscle: "costas", label: "Costas", x: 31.5, y: 24, w: 17.5, h: 19 },
+    { muscle: "triceps", label: "Tríceps", x: 25, y: 24, w: 6.5, h: 12 }, { muscle: "triceps", label: "Tríceps", x: 48.5, y: 24, w: 6.5, h: 12 },
+    { muscle: "gluteos", label: "Glúteos", x: 31, y: 42.5, w: 18, h: 11 },
+    { muscle: "pernas", label: "Pernas", x: 30.5, y: 54, w: 19, h: 14 },
+    { muscle: "panturrilha", label: "Panturrilhas", x: 31, y: 69, w: 18.5, h: 19 }
   ]
 };
 export function ExercisesPage() {
