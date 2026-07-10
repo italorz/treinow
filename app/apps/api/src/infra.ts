@@ -1,7 +1,7 @@
 import { MongoClient, type Db } from "mongodb";
 import { Redis } from "ioredis";
 import { Queue } from "bullmq";
-import { S3Client } from "@aws-sdk/client-s3";
+import { S3Client, CreateBucketCommand } from "@aws-sdk/client-s3";
 import { config } from "./config.js";
 
 export const mongo = new MongoClient(config.MONGODB_URI);
@@ -31,6 +31,7 @@ export const queues = {
 };
 
 export async function connectInfra() {
+  await ensureBucket();
   await mongo.connect();
   db = mongo.db();
   await Promise.all([
@@ -46,4 +47,13 @@ export async function connectInfra() {
     db.collection("sessions").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
     db.collection("invitations").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
   ]);
+}
+
+async function ensureBucket() {
+  try {
+    await s3.send(new CreateBucketCommand({ Bucket: config.MINIO_BUCKET }));
+  } catch (error: any) {
+    const code = error?.name ?? error?.Code;
+    if (code !== "BucketAlreadyOwnedByYou" && code !== "BucketAlreadyExists") throw error;
+  }
 }
