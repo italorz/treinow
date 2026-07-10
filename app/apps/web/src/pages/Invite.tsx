@@ -1,0 +1,4 @@
+import { useMutation } from "@tanstack/react-query";
+import { useNavigate, useParams } from "react-router-dom";
+import { api } from "../api";
+export function InvitePage(){const{token}=useParams();const nav=useNavigate();const accept=useMutation({mutationFn:()=>api(`/invitations/${token}/accept`,{method:"POST"}),onSuccess:()=>nav("/hoje")});return <div className="auth-page"><div className="auth-card"><div className="brand"><span className="brand-mark">T</span><span>treinow</span></div><h2>Convite do personal</h2><p>Ao aceitar, o personal poderá acompanhar seu progresso, editar metas e administrar seus treinos. Você pode revogar este acesso quando quiser.</p>{accept.error&&<p className="error">{accept.error.message}</p>}<button className="primary" onClick={()=>accept.mutate()} disabled={accept.isPending}>Aceitar vínculo e consentimento</button></div></div>}
