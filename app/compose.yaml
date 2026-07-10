@@ -42,9 +42,6 @@ services:
       mongo-init: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
       minio-init: { condition: service_completed_successfully }
-    volumes:
-      - ./videos:/app/videos:ro
-      - ./catalog:/app/catalog:ro
     restart: unless-stopped
     read_only: true
     tmpfs: ["/tmp"]

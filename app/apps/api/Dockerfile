@@ -18,6 +18,8 @@ COPY --from=build /app/apps/api/dist apps/api/dist
 COPY --from=build /app/packages/contracts/dist packages/contracts/dist
 COPY apps/api/package.json apps/api/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
+COPY catalog ./catalog
+COPY videos ./videos
 USER app
 EXPOSE 3000
 CMD ["node", "apps/api/dist/server.js"]
