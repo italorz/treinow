@@ -12,4 +12,4 @@ RUN npm run build -w @treinow/contracts && npm run build -w @treinow/web
 FROM nginx:1.29-alpine
 COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
-EXPOSE 8080
+EXPOSE 80

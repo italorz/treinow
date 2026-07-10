@@ -4,7 +4,7 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
-    expose: ["8080"]
+    expose: ["80"]
     depends_on:
       api: { condition: service_healthy }
     read_only: true
