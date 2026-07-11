@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { safePromptProfile } from "./privacy.js";
 import { allowedByInjury, rulesPlan } from "./workout.js";
@@ -58,6 +60,31 @@ describe("rulesPlan", () => {
     const plan = rulesPlan(baseProfile, catalog);
     const ids = plan.days[1]!.exercises.flatMap(i => [i.exerciseId, ...i.reserveExerciseIds]);
     expect(ids).toContain("l1");
+  });
+});
+
+describe("rulesPlan com o catálogo real", () => {
+  const raw = JSON.parse(readFileSync(join(import.meta.dirname, "../../../catalog/exercises.pt-BR.json"), "utf8"));
+  const real: CatalogExercise[] = raw
+    .filter((e: any) => !e.needsReview && e.targetKey)
+    .map((e: any, i: number) => ({ ...e, _id: `id${i}` }));
+  const buckets = new Map<string, CatalogExercise[]>();
+  for (const e of real) {
+    const k = `${e.targetKey}:${e.equipment}:${e.isWarmup}:${e.isStretch}`;
+    const b = buckets.get(k) ?? [];
+    if (b.length < 2) b.push(e);
+    buckets.set(k, b);
+  }
+  const balanced = [...buckets.values()].flat().slice(0, 360);
+  it("gera semana completa treinando todos os dias só com peso corporal e halteres", () => {
+    // Regressão: perfil padrão da tela de Meta com 7 dias falhava por esgotar
+    // os aquecimentos (a maioria dos alongamentos também é aquecimento).
+    const plan = rulesPlan({ ...baseProfile, trainingDays: [0, 1, 2, 3, 4, 5, 6], equipment: ["peso_corporal", "halter"], priorityMuscles: [] }, balanced);
+    for (const day of plan.days) {
+      expect(day.exercises.filter(i => i.phase === "aquecimento").length).toBeGreaterThanOrEqual(1);
+      expect(day.exercises.filter(i => i.phase === "principal").length).toBeGreaterThanOrEqual(4);
+      expect(day.exercises.filter(i => i.phase === "alongamento").length).toBeGreaterThanOrEqual(1);
+    }
   });
 });
 

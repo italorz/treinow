@@ -24,12 +24,23 @@ export function ExerciseVideo({ id, eager = false, controls = false, className =
     const video = videoRef.current as any;
     if (!video) return;
     // Em tela cheia os controles nativos ficam disponíveis; ao sair, voltam ao estado da prop.
+    // Os vídeos do catálogo são verticais (320x420): trava a orientação em
+    // retrato para o Android não girar a tela para paisagem.
     video.controls = true;
-    const restore = () => { if (!document.fullscreenElement) { video.controls = controls; document.removeEventListener("fullscreenchange", restore); } };
+    const orientation = (screen as any).orientation;
+    const restore = () => {
+      if (!document.fullscreenElement) {
+        video.controls = controls;
+        try { orientation?.unlock?.(); } catch { /* alguns navegadores não suportam */ }
+        document.removeEventListener("fullscreenchange", restore);
+      }
+    };
     if (video.requestFullscreen) {
       document.addEventListener("fullscreenchange", restore);
-      video.requestFullscreen().catch(() => { video.controls = controls; document.removeEventListener("fullscreenchange", restore); });
-    } else if (video.webkitEnterFullscreen) { // iOS Safari
+      video.requestFullscreen()
+        .then(() => orientation?.lock?.("portrait").catch(() => {}))
+        .catch(() => { video.controls = controls; document.removeEventListener("fullscreenchange", restore); });
+    } else if (video.webkitEnterFullscreen) { // iOS Safari usa o player nativo
       video.addEventListener("webkitendfullscreen", () => { video.controls = controls; }, { once: true });
       video.webkitEnterFullscreen();
     } else {

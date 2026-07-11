@@ -1,5 +1,6 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 const days = ["D", "S", "T", "Q", "Q", "S", "S"];
 const equipment = [["peso_corporal","Peso corporal"],["halter","Halteres"],["anilha","Anilhas"],["barra","Barra"],["cabo","Cabo"],["maquina","Máquinas"],["elastico","Elástico"]];
@@ -8,8 +9,31 @@ export function MetaPage() {
   const existing = useQuery({ queryKey: ["meta"], queryFn: () => api<any>("/meta") });
   const memberships = useQuery({ queryKey: ["memberships"], queryFn: () => api<any>("/memberships") });
   const [form, setForm] = useState<any>({ goal:"mais_disposto", level:"iniciante", trainingDays:[1,3,5], durationMinutes:"45", location:"academia", equipment:["peso_corporal","halter"], weightKg:70, heightCm:170, age:30, sex:"nao_informar", priorityMuscles:[], intensity:"moderada", injuries:[] });
+  useEffect(() => {
+    const meta = existing.data?.meta;
+    if (meta) setForm((f: any) => ({ ...f, ...Object.fromEntries(Object.entries(meta).filter(([k]) => k in f)), durationMinutes: String(meta.durationMinutes ?? f.durationMinutes) }));
+  }, [existing.data]);
   const bmi = useMemo(() => (form.weightKg / ((form.heightCm/100) ** 2)).toFixed(1), [form.weightKg, form.heightCm]);
-  const save = useMutation({ mutationFn: () => api<any>("/meta", { method:"PUT", body:JSON.stringify(form) }) });
+  const qc = useQueryClient(); const navigate = useNavigate();
+  const [genError, setGenError] = useState("");
+  const save = useMutation({
+    mutationFn: async () => {
+      setGenError("");
+      const { jobId } = await api<any>("/meta", { method:"PUT", body:JSON.stringify(form) });
+      // Acompanha o job de geração: só libera o botão com plano pronto ou erro claro.
+      for (let i = 0; i < 40; i++) {
+        const job = await api<any>(`/jobs/workout/${jobId}`);
+        if (job.state === "completed") {
+          qc.invalidateQueries({ queryKey: ["today"] }); qc.invalidateQueries({ queryKey: ["calendar"] });
+          navigate("/hoje");
+          return;
+        }
+        if (job.state === "failed") { setGenError(job.failedReason || "Não foi possível gerar o treino. Revise sua meta."); return; }
+        await new Promise(r => setTimeout(r, 1500));
+      }
+      setGenError("A geração está demorando mais que o normal. Confira o calendário em instantes.");
+    }
+  });
   const toggle = (key:string, value:any, max=99) => setForm((f:any) => ({...f,[key]:f[key].includes(value)?f[key].filter((v:any)=>v!==value):f[key].length<max?[...f[key],value]:f[key]}));
   return <section className="page meta-page"><div className="page-title"><div><span className="eyebrow">PERSONALIZAÇÃO</span><h1>Sua meta</h1></div><div className="bmi"><span>IMC</span><strong>{bmi}</strong></div></div>
     <div className="form-section"><h2>Como você quer se sentir amanhã?</h2><select value={form.goal} onChange={e=>setForm({...form,goal:e.target.value})}><option value="mais_disposto">Mais disposto</option><option value="mais_bonito">Mais bonito</option><option value="mais_forte">Mais forte</option><option value="mais_leve">Mais leve</option><option value="mais_saudavel">Mais saudável</option><option value="menos_estressado">Menos estressado</option></select></div>
@@ -21,6 +45,6 @@ export function MetaPage() {
     <div className="form-grid"><label>Local<select value={form.location} onChange={e=>setForm({...form,location:e.target.value})}><option value="academia">Academia</option><option value="casa">Casa</option><option value="ambos">Ambos</option></select></label><label>Intensidade<select value={form.intensity} onChange={e=>setForm({...form,intensity:e.target.value})}><option value="leve">Leve</option><option value="moderada">Moderada</option><option value="intensa">Intensa</option></select></label></div>
     <div className="form-section"><h2>Lesões ou limitações?</h2><div className="choice-grid">{["ombro","cotovelo","punho","coluna_lombar","quadril","joelho","tornozelo"].map(region=><button key={region} className={form.injuries.some((x:any)=>x.region===region)?"selected danger":""} onClick={()=>setForm((f:any)=>({...f,injuries:f.injuries.some((x:any)=>x.region===region)?f.injuries.filter((x:any)=>x.region!==region):[...f.injuries,{region,severity:"leve",status:"recuperacao",medicallyCleared:true}]}))}>{region.replace("_"," ")}</button>)}</div><p className="hint">Dor aguda ou lesão grave sem liberação bloqueará a geração por segurança.</p></div>
     {!!memberships.data?.memberships?.length&&<div className="form-section"><h2>Personais com acesso completo</h2>{memberships.data.memberships.map((m:any)=><div className="consent-row" key={m.id}><span>{m.tenantName}</span><button onClick={async()=>{await api(`/memberships/${m.id}/revoke`,{method:"POST"});memberships.refetch()}}>Revogar acesso</button></div>)}</div>}
-    {save.error&&<p className="error">{save.error.message}</p>}<button className="primary sticky-action" disabled={save.isPending} onClick={()=>save.mutate()}>{save.isPending?"Montando seu plano...":"Salvar e gerar meu treino"}</button>
+    {(save.error||genError)&&<p className="error">{genError||save.error?.message}</p>}<button className="primary sticky-action" disabled={save.isPending} onClick={()=>save.mutate()}>{save.isPending?"Montando seu plano...":"Salvar e gerar meu treino"}</button>
   </section>;
 }

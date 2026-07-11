@@ -143,6 +143,12 @@ export function rulesPlan(profile: any, catalog: CatalogExercise[]): WorkoutPlan
       if (!activeDays.includes(weekday)) return { weekday, title: "Descanso", focusMuscles: [], exercises: [] };
       const slot = template[activeDays.indexOf(weekday) % template.length]!;
       const muscleOrder = [...new Set([...priorities.filter(m => slot.muscles.includes(m)), ...slot.muscles])];
+      const remainingDays = activeDays.length - activeDays.indexOf(weekday);
+      const uniqueNames = (pool: CatalogExercise[]) => new Set(pool.map(e => normalizedName(e.name))).size;
+      // Volume diário encolhe quando o estoque de exercícios inéditos não
+      // sustenta o restante da semana (perfis com pouco equipamento).
+      const mainPoolNames = uniqueNames(catalog.filter(isMainCandidate));
+      const dayTarget = Math.max(4, Math.min(mainsTarget, Math.floor(mainPoolNames / (remainingDays * 1.3))));
 
       const picked: Array<{ exercise: CatalogExercise; reserves: CatalogExercise[] }> = [];
       const pickFor = (muscle?: string) => {
@@ -156,10 +162,10 @@ export function rulesPlan(profile: any, catalog: CatalogExercise[]): WorkoutPlan
         picked.push({ exercise: candidate, reserves });
         return true;
       };
-      for (let round = 0; round < mainsTarget && picked.length < mainsTarget; round++) {
+      for (let round = 0; round < dayTarget && picked.length < dayTarget; round++) {
         let progressed = false;
         for (const muscle of muscleOrder) {
-          if (picked.length >= mainsTarget) break;
+          if (picked.length >= dayTarget) break;
           progressed = pickFor(muscle) || progressed;
         }
         if (!progressed) break;
@@ -168,19 +174,35 @@ export function rulesPlan(profile: any, catalog: CatalogExercise[]): WorkoutPlan
 
       const focus = [...new Set(picked.map(p => p.exercise.musclePrimary))].slice(0, 3);
       const shoulderDay = picked.some(p => p.exercise.targetKey.startsWith("ombro_"));
-      const warmPool = catalog.filter(e => e.isWarmup && !e.isStretch && safe(e) && unused(e));
+      // Muitos itens do catálogo são aquecimento E alongamento ao mesmo tempo.
+      // O pool aceita ambos, mas prefere os "puros" para não drenar os nomes
+      // que os alongamentos vão precisar nos dias seguintes; a quantidade por
+      // dia encolhe para 1 quando o estoque único não cobre os dias restantes.
+      // Aquecimentos de manguito são reservados para dias de ombro (1 por dia),
+      // senão os primeiros dias da semana esgotam o estoque dos seguintes.
+      const isCuff = (e: CatalogExercise) => e.targetKey.startsWith("manguito_rotador_");
+      const warmPool = catalog.filter(e => e.isWarmup && safe(e) && unused(e));
+      const warmTake = uniqueNames(warmPool) >= remainingDays * 2 ? 2 : 1;
+      const warmups: CatalogExercise[] = [];
+      if (shoulderDay) {
+        warmups.push(...uniqueByName(warmPool.filter(isCuff), usedNames, 1));
+        warmups.forEach(mark);
+      }
+      const nonCuffPool = warmPool.filter(e => !isCuff(e) && unused(e));
       const orderedWarmups = [
-        ...(shoulderDay ? warmPool.filter(e => e.targetKey.startsWith("manguito_rotador_")) : []),
-        ...warmPool.filter(e => focus.includes(e.musclePrimary)),
-        ...warmPool
+        ...nonCuffPool.filter(e => !e.isStretch && focus.includes(e.musclePrimary)),
+        ...nonCuffPool.filter(e => !e.isStretch),
+        ...nonCuffPool
       ];
-      const warmups = uniqueByName(orderedWarmups, usedNames, 2);
-      warmups.forEach(mark);
+      const extraWarmups = uniqueByName(orderedWarmups, usedNames, Math.max(warmTake - warmups.length, warmups.length ? 0 : 1));
+      extraWarmups.forEach(mark);
+      warmups.push(...extraWarmups);
       const stretchPool = catalog.filter(e => e.isStretch && safe(e) && unused(e))
         .sort((a, b) => Number(focus.includes(b.musclePrimary)) - Number(focus.includes(a.musclePrimary)));
-      const stretches = uniqueByName(stretchPool, usedNames, 2);
+      const stretches = uniqueByName(stretchPool, usedNames, uniqueNames(stretchPool) >= remainingDays * 2 ? 2 : 1);
       stretches.forEach(mark);
 
+      if (process.env.RULES_DEBUG) console.error(`[dia ${weekday}] mains=${picked.length} warm=${warmups.length} stretch=${stretches.length} slot=${slot.title}`);
       return {
         weekday,
         title: slot.title,
