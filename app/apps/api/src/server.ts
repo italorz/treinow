@@ -99,10 +99,35 @@ app.get("/v1/exercises", async request => {
   if (q.equipment) filter.equipment = q.equipment;
   if (q.search) filter.searchTokens = normalize(q.search);
   if (q.cursor && ObjectId.isValid(q.cursor)) filter._id = { $gt: new ObjectId(q.cursor) };
-  const items = await db.collection("exercises").find(filter).sort({ _id: 1 }).limit(20).project({
+  const limit = Math.min(Math.max(Number.parseInt(q.limit) || 9, 1), 24);
+  const items = await db.collection("exercises").find(filter).sort({ _id: 1 }).limit(limit).project({
     slug: 1, name: 1, musclePrimary: 1, equipment: 1, complexity: 1, requiresHighMindMuscleAwareness: 1, video: 1
   }).toArray();
-  return { items: items.map(e => ({ ...e, id: String(e._id), _id: undefined })), nextCursor: items.length === 20 ? String(items.at(-1)!._id) : null };
+  return { items: items.map(e => ({ ...e, id: String(e._id), _id: undefined })), nextCursor: items.length === limit ? String(items.at(-1)!._id) : null };
+});
+app.get("/v1/exercises/:id", async request => {
+  await requireUser(request);
+  const { id } = request.params as any;
+  if (!ObjectId.isValid(id)) throw Object.assign(new Error("Exercício inválido"), { statusCode: 400 });
+  const exercise: any = await db.collection("exercises").findOne({ _id: new ObjectId(id) }, { projection: {
+    slug: 1, name: 1, musclePrimary: 1, secondaryMuscles: 1, equipment: 1, complexity: 1,
+    movementPattern: 1, targetKey: 1, isUnilateral: 1, isWarmup: 1, isStretch: 1, joints: 1, requiresHighMindMuscleAwareness: 1
+  } });
+  if (!exercise) throw Object.assign(new Error("Exercício não encontrado"), { statusCode: 404 });
+  const related = (extra: Record<string, unknown>) => db.collection("exercises")
+    .find({ musclePrimary: exercise.musclePrimary, _id: { $ne: exercise._id }, needsReview: { $ne: true }, ...extra })
+    .project({ name: 1, equipment: 1, targetKey: 1 }).limit(8).toArray();
+  const [warmupDocs, stretchDocs] = await Promise.all([related({ isWarmup: true }), related({ isStretch: true })]);
+  if (exercise.musclePrimary === "ombro") {
+    const cuffFirst = (a: any, b: any) => Number(String(b.targetKey).startsWith("manguito_rotador_")) - Number(String(a.targetKey).startsWith("manguito_rotador_"));
+    warmupDocs.sort(cuffFirst);
+  }
+  const shape = (e: any) => ({ id: String(e._id), name: e.name, equipment: e.equipment });
+  return {
+    exercise: { ...exercise, id: String(exercise._id), _id: undefined },
+    warmups: warmupDocs.slice(0, 3).map(shape),
+    stretches: stretchDocs.slice(0, 3).map(shape)
+  };
 });
 app.get("/v1/exercises/:id/video-url", async request => {
   await requireUser(request);
@@ -123,10 +148,13 @@ app.get("/v1/media/:id", async (request, reply) => {
   }
   const exercise: any = ObjectId.isValid(id) ? await db.collection("exercises").findOne({ _id: new ObjectId(id) }) : null;
   if (!exercise) throw Object.assign(new Error("Mídia não encontrada"), { statusCode: 404 });
-  const object = await s3.send(new GetObjectCommand({ Bucket: config.MINIO_BUCKET, Key: exercise.video.objectKey }));
+  const range = request.headers.range;
+  const object = await s3.send(new GetObjectCommand({ Bucket: config.MINIO_BUCKET, Key: exercise.video.objectKey, Range: range }));
   reply.header("content-type", object.ContentType ?? "video/mp4");
-  reply.header("cache-control", "private, max-age=240");
+  reply.header("cache-control", "private, max-age=86400");
   reply.header("accept-ranges", "bytes");
+  if (object.ContentLength != null) reply.header("content-length", String(object.ContentLength));
+  if (range && object.ContentRange) reply.code(206).header("content-range", object.ContentRange);
   return reply.send(object.Body as any);
 });
 

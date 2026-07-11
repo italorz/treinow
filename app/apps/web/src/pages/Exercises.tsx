@@ -1,7 +1,8 @@
-import { useInfiniteQuery } from "@tanstack/react-query";
-import { Search } from "lucide-react";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { Play, Search, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
+import { ExerciseVideo } from "../video";
 
 // Coordenadas em % de cada metade quadrada (887x887) do sprite ecorche.png,
 // medidas pixel a pixel. O contêiner .anatomy tem aspect-ratio 1/1 igual ao da
@@ -26,6 +27,7 @@ const spots: Record<string, { muscle: string; label: string; x: number; y: numbe
 };
 export function ExercisesPage() {
   const [view, setView] = useState<"front" | "back">("front"); const [muscle, setMuscle] = useState(""); const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<any>(null);
   const query = useInfiniteQuery({
     queryKey: ["exercises", muscle, search],
     queryFn: ({ pageParam }) => api<any>(`/exercises?${new URLSearchParams({ ...(muscle ? { muscle } : {}), ...(search ? { search } : {}), ...(pageParam ? { cursor: pageParam } : {}) })}`),
@@ -43,12 +45,52 @@ export function ExercisesPage() {
     </div>
     <label className="search"><Search size={19}/><input type="search" placeholder="Nome, halter, barra, cabo..." value={search} onChange={e => setSearch(e.target.value)}/></label>
     {(muscle || search) && <div className="filter-note">{muscle || `Resultados para “${search}”`}<button onClick={() => {setMuscle(""); setSearch("");}}>Limpar</button></div>}
-    <div className="library-grid">{items.map((e: any) => <ExerciseCard key={e.id} exercise={e}/>)}</div>
+    <div className="library-grid">{items.map((e: any) => <ExerciseCard key={e.id} exercise={e} onOpen={() => setSelected(e)}/>)}</div>
     {query.isLoading && <div className="skeleton tall"/>}<div ref={sentinel}/>{!query.hasNextPage && items.length > 0 && <p className="end">Você viu todos os exercícios.</p>}
+    {selected && <ExerciseModal exercise={selected} onClose={() => setSelected(null)}/>}
   </section>;
 }
-function ExerciseCard({ exercise }: any) {
-  const ref = useRef<HTMLVideoElement>(null); const [url, setUrl] = useState("");
-  useEffect(() => { const io = new IntersectionObserver(async e => { if (e[0]?.isIntersecting) { if (!url) { const d = await api<any>(`/exercises/${exercise.id}/video-url`); setUrl(d.url); } ref.current?.play().catch(() => {}); } else ref.current?.pause(); }, { rootMargin: "150px" }); if (ref.current) io.observe(ref.current); return () => io.disconnect(); }, [exercise.id, url]);
-  return <article className="library-card"><video ref={ref} src={url} muted loop playsInline preload="none"/><div><span className="tag">{exercise.musclePrimary}</span><h3>{exercise.name}</h3><p>{exercise.equipment} · {exercise.complexity}</p></div></article>;
+function ExerciseCard({ exercise, onOpen }: any) {
+  return <button type="button" className="library-card" onClick={onOpen}>
+    <span className="card-poster"><Play size={20} fill="currentColor"/></span>
+    <div><span className="tag">{exercise.musclePrimary}</span><h3>{exercise.name}</h3><p>{exercise.equipment} · {exercise.complexity}</p></div>
+  </button>;
+}
+function ExerciseModal({ exercise, onClose }: any) {
+  const detail = useQuery({ queryKey: ["exercise", exercise.id], queryFn: () => api<any>(`/exercises/${exercise.id}`) });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.body.style.overflow = "hidden"; window.addEventListener("keydown", onKey);
+    return () => { document.body.style.overflow = ""; window.removeEventListener("keydown", onKey); };
+  }, [onClose]);
+  const d = detail.data; const ex = d?.exercise;
+  return <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal" role="dialog" aria-modal="true" onClick={e => e.stopPropagation()}>
+      <button type="button" className="modal-close" onClick={onClose} aria-label="Fechar"><X size={20}/></button>
+      <ExerciseVideo id={exercise.id} eager controls className="modal-video"/>
+      <div className="modal-body">
+        <span className="tag">{exercise.musclePrimary}</span>
+        <h2>{exercise.name}</h2>
+        <p className="muted cap">{exercise.equipment} · {exercise.complexity}</p>
+        {detail.isLoading && <div className="skeleton" style={{ height: 80 }}/>}
+        {ex && <dl className="meta-grid">
+          {ex.movementPattern && <div><dt>Padrão de movimento</dt><dd>{ex.movementPattern}</dd></div>}
+          {ex.secondaryMuscles?.length > 0 && <div><dt>Músculos auxiliares</dt><dd>{ex.secondaryMuscles.join(", ")}</dd></div>}
+          {ex.joints?.length > 0 && <div><dt>Articulações</dt><dd>{ex.joints.join(", ")}</dd></div>}
+          <div><dt>Execução</dt><dd>{ex.isUnilateral ? "Unilateral — um lado por vez" : "Bilateral"}{ex.requiresHighMindMuscleAwareness ? " · foco na conexão mente-músculo" : ""}</dd></div>
+        </dl>}
+        {d?.warmups?.length > 0 && <RecoSection title="Aquecimento recomendado" items={d.warmups}/>}
+        {d?.stretches?.length > 0 && <RecoSection title="Alongamentos recomendados" items={d.stretches}/>}
+      </div>
+    </div>
+  </div>;
+}
+function RecoSection({ title, items }: { title: string; items: any[] }) {
+  return <section className="reco">
+    <h4>{title}</h4>
+    {items.map(item => <div key={item.id} className="reco-row">
+      <ExerciseVideo id={item.id} className="reco-video"/>
+      <div><strong>{item.name}</strong><span className="cap">{item.equipment}</span></div>
+    </div>)}
+  </section>;
 }
