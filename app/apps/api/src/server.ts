@@ -164,28 +164,38 @@ app.get("/v1/workouts/calendar", async request => {
   await assertStudentAccess(user, studentId);
   return { plan: await db.collection("workoutPlans").findOne({ studentId: new ObjectId(studentId), active: true }, { sort: { version: -1 } }) };
 });
-app.get("/v1/workouts/today", async request => {
-  const user = await requireUser(request);
-  const studentId = user.role === "student" ? user.id : String((request.query as any).studentId ?? "");
-  await assertStudentAccess(user, studentId);
+async function resolvePlanDay(studentId: string, weekday: number) {
   const plan: any = await db.collection("workoutPlans").findOne({ studentId: new ObjectId(studentId), active: true });
-  const weekday = new Date().getDay();
   const day = plan?.days?.find((d: any) => d.weekday === weekday) ?? null;
-  if (!day) return { day: null };
+  if (!day) return null;
   const rawIds: string[] = day.exercises.flatMap((item: any) => [item.exerciseId, ...(item.reserveExerciseIds ?? [])]).map(String);
   const ids = [...new Set(rawIds)]
     .filter(id => ObjectId.isValid(id))
     .map(id => new ObjectId(id));
   const exercises = await db.collection("exercises").find({ _id: { $in: ids } }).project({ name: 1, equipment: 1, musclePrimary: 1, targetKey: 1 }).toArray();
   const byId = new Map(exercises.map(e => [String(e._id), e]));
-  return { day: { ...day, exercises: day.exercises.map((item: any) => ({
+  return { ...day, exercises: day.exercises.map((item: any) => ({
     ...item,
     ...byId.get(item.exerciseId),
     id: item.exerciseId,
     warmup: item.phase === "aquecimento" || item.warmup === true,
     reserves: (item.reserveExerciseIds ?? []).map((id: string) => ({ id, ...byId.get(id), _id: undefined })),
     _id: undefined
-  })) } };
+  })) };
+}
+app.get("/v1/workouts/today", async request => {
+  const user = await requireUser(request);
+  const studentId = user.role === "student" ? user.id : String((request.query as any).studentId ?? "");
+  await assertStudentAccess(user, studentId);
+  return { day: await resolvePlanDay(studentId, new Date().getDay()) };
+});
+app.get("/v1/workouts/day/:weekday", async request => {
+  const user = await requireUser(request);
+  const studentId = user.role === "student" ? user.id : String((request.query as any).studentId ?? "");
+  await assertStudentAccess(user, studentId);
+  const weekday = Number((request.params as any).weekday);
+  if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) throw Object.assign(new Error("Dia inválido"), { statusCode: 400 });
+  return { day: await resolvePlanDay(studentId, weekday) };
 });
 app.post("/v1/workouts/logs", async request => {
   const user = await requireUser(request);

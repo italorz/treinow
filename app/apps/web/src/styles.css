@@ -32,4 +32,10 @@
 .reco-video,.reserve-video{width:54px;height:68px;flex:0 0 auto;border-radius:10px;background:#0b1020}
 .reserve-row{display:flex;align-items:center;gap:10px;justify-content:flex-start;padding-top:8px}
 .reserve-row>div{display:flex;flex-direction:column;gap:2px;text-align:left;font-size:11px}
+.schedule article.clickable{cursor:pointer;transition:.15s}.schedule article.clickable:hover,.schedule article.clickable:focus-visible{border-color:var(--green);box-shadow:0 4px 16px #11182b14}
+.cal-row{display:flex;align-items:flex-start;gap:10px;padding:12px 0;border-top:1px solid var(--line)}
+.cal-row .exercise-number{margin-top:24px}
+.cal-row .grow{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:3px}
+.cal-name{font-size:13px}.cal-meta{font-size:11px;color:var(--muted)}
+.cal-row .reserves{width:100%}
 @media(min-width:900px){.student-shell>header{padding-left:20px;padding-right:20px}.student-shell .bottom-nav{width:min(100%,480px)}}

@@ -12,6 +12,7 @@ const schema = z.object({
   MINIO_ACCESS_KEY: z.string().default("minioadmin"),
   MINIO_SECRET_KEY: z.string().default("minioadmin-change"),
   MINIO_BUCKET: z.string().default("treinow-videos"),
+  PLAN_ENGINE: z.enum(["rules", "gemini"]).default("rules"),
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_PLAN_MODEL: z.string().default("gemini-3.1-pro-preview"),
   GEMINI_FALLBACK_MODEL: z.string().default("gemini-3.5-flash")
