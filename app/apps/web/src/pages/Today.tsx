@@ -3,6 +3,9 @@ import { Check, Flame } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api";
 import { ExerciseVideo } from "../video";
+import { EquipmentIcon } from "../equipment";
+
+const phaseOrder: Record<string, number> = { alongamento: 0, aquecimento: 1, principal: 2 };
 
 export function TodayPage() {
   const query = useQuery({ queryKey: ["today"], queryFn: () => api<any>("/workouts/today") });
@@ -11,7 +14,7 @@ export function TodayPage() {
     {query.isLoading && <CardSkeleton/>}
     {!query.data?.day && !query.isLoading && <div className="empty"><h2>Dia de recuperação</h2><p>Seu corpo evolui quando também descansa. Configure sua meta para gerar um novo plano.</p></div>}
     {query.data?.day && <><div className="workout-hero"><span>Treino de hoje</span><h2>{query.data.day.title}</h2><p>{query.data.day.exercises.length} exercícios · aproximadamente 45 min</p></div>
-      <div className="exercise-list">{query.data.day.exercises.map((e: any, i: number) => <TodayExercise key={e.id} exercise={e} index={i}/>)}</div></>}
+      <div className="exercise-list">{[...query.data.day.exercises].sort((a: any,b: any) => (phaseOrder[a.phase] ?? 99)-(phaseOrder[b.phase] ?? 99)).map((e: any, i: number) => <TodayExercise key={e.id} exercise={e} index={i}/>)}</div></>}
   </section>;
 }
 function TodayExercise({ exercise, index }: any) {
@@ -33,7 +36,7 @@ function TodayExercise({ exercise, index }: any) {
         <summary>Alternativas sem depender do aparelho</summary>
         {showReserves && exercise.reserves.map((reserve: any) => <div key={reserve.id} className="reserve-row">
           <ExerciseVideo id={reserve.id} className="reserve-video"/>
-          <div><strong>{reserve.name}</strong><span>{reserve.equipment}</span></div>
+          <div><strong>{reserve.name}</strong><EquipmentIcon equipment={reserve.equipment} name={reserve.name}/></div>
         </div>)}
       </details>}
     </div>

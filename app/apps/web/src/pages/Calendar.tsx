@@ -3,6 +3,9 @@ import { X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { ExerciseVideo } from "../video";
+import { EquipmentIcon } from "../equipment";
+
+const phaseOrder: Record<string, number> = { alongamento: 0, aquecimento: 1, principal: 2 };
 
 const labels = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
@@ -44,7 +47,7 @@ function DayModal({ weekday, onClose }: { weekday: number; onClose: () => void }
         <h2>{day?.title ?? "Treino"}</h2>
         {day?.focusMuscles?.length > 0 && <p className="muted cap">{day.focusMuscles.join(" · ")}</p>}
         {query.isLoading && <div className="skeleton" style={{ height: 120 }}/>}
-        {day?.exercises?.map((e: any, i: number) => <div key={e.id} className="cal-row">
+        {day?.exercises && [...day.exercises].sort((a: any,b: any) => (phaseOrder[a.phase] ?? 99)-(phaseOrder[b.phase] ?? 99)).map((e: any, i: number) => <div key={e.id} className="cal-row">
           <span className="exercise-number">{String(i + 1).padStart(2, "0")}</span>
           <ExerciseVideo id={e.id} className="reco-video"/>
           <div className="grow">
@@ -57,7 +60,7 @@ function DayModal({ weekday, onClose }: { weekday: number; onClose: () => void }
               <summary>Alternativas sem depender do aparelho</summary>
               {e.reserves.map((r: any) => <div key={r.id} className="reserve-row">
                 <ExerciseVideo id={r.id} className="reserve-video"/>
-                <div><strong>{r.name}</strong><span>{r.equipment}</span></div>
+                <div><strong>{r.name}</strong><EquipmentIcon equipment={r.equipment} name={r.name}/></div>
               </div>)}
             </details>}
           </div>

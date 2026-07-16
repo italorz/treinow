@@ -1,8 +1,9 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { Play, Search, X } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { ExerciseVideo } from "../video";
+import { domainLabel } from "../i18n";
 
 // Coordenadas em % de cada metade quadrada (887x887) do sprite ecorche.png,
 // medidas pixel a pixel. O contêiner .anatomy tem aspect-ratio 1/1 igual ao da
@@ -52,8 +53,8 @@ export function ExercisesPage() {
 }
 function ExerciseCard({ exercise, onOpen }: any) {
   return <button type="button" className="library-card" onClick={onOpen}>
-    <span className="card-poster"><Play size={20} fill="currentColor"/></span>
-    <div><span className="tag">{exercise.musclePrimary}</span><h3>{exercise.name}</h3><p>{exercise.equipment} · {exercise.complexity}</p></div>
+    <ExerciseVideo id={exercise.id} className="card-poster" zoomable={false}/>
+    <div><span className="tag">{domainLabel(exercise.musclePrimary)}</span><h3>{exercise.name}</h3><p>{domainLabel(exercise.equipment)} · {domainLabel(exercise.complexity)}</p></div>
   </button>;
 }
 function ExerciseModal({ exercise, onClose }: any) {
@@ -69,14 +70,14 @@ function ExerciseModal({ exercise, onClose }: any) {
       <button type="button" className="modal-close" onClick={onClose} aria-label="Fechar"><X size={20}/></button>
       <ExerciseVideo id={exercise.id} eager controls className="modal-video"/>
       <div className="modal-body">
-        <span className="tag">{exercise.musclePrimary}</span>
+        <span className="tag">{domainLabel(exercise.musclePrimary)}</span>
         <h2>{exercise.name}</h2>
-        <p className="muted cap">{exercise.equipment} · {exercise.complexity}</p>
+        <p className="muted cap">{domainLabel(exercise.equipment)} · {domainLabel(exercise.complexity)}</p>
         {detail.isLoading && <div className="skeleton" style={{ height: 80 }}/>}
         {ex && <dl className="meta-grid">
-          {ex.movementPattern && <div><dt>Padrão de movimento</dt><dd>{ex.movementPattern}</dd></div>}
-          {ex.secondaryMuscles?.length > 0 && <div><dt>Músculos auxiliares</dt><dd>{ex.secondaryMuscles.join(", ")}</dd></div>}
-          {ex.joints?.length > 0 && <div><dt>Articulações</dt><dd>{ex.joints.join(", ")}</dd></div>}
+          {ex.movementPattern && <div><dt>Padrão de movimento</dt><dd>{domainLabel(ex.movementPattern)}</dd></div>}
+          {ex.secondaryMuscles?.length > 0 && <div><dt>Músculos auxiliares</dt><dd>{ex.secondaryMuscles.map(domainLabel).join(", ")}</dd></div>}
+          {ex.joints?.length > 0 && <div><dt>Articulações</dt><dd>{ex.joints.map(domainLabel).join(", ")}</dd></div>}
           <div><dt>Execução</dt><dd>{ex.isUnilateral ? "Unilateral — um lado por vez" : "Bilateral"}{ex.requiresHighMindMuscleAwareness ? " · foco na conexão mente-músculo" : ""}</dd></div>
         </dl>}
         {d?.warmups?.length > 0 && <RecoSection title="Aquecimento recomendado" items={d.warmups}/>}
@@ -90,7 +91,7 @@ function RecoSection({ title, items }: { title: string; items: any[] }) {
     <h4>{title}</h4>
     {items.map(item => <div key={item.id} className="reco-row">
       <ExerciseVideo id={item.id} className="reco-video"/>
-      <div><strong>{item.name}</strong><span className="cap">{item.equipment}</span></div>
+      <div><strong>{item.name}</strong><span className="cap">{domainLabel(item.equipment)}</span></div>
     </div>)}
   </section>;
 }

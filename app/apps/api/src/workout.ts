@@ -34,7 +34,8 @@ export async function generatePlan(studentId: string): Promise<GeneratedPlan> {
   if (!catalog.length) throw new Error("Catálogo compatível vazio");
 
   if (config.PLAN_ENGINE === "gemini" && config.GEMINI_API_KEY) {
-    const attempt = await geminiPlan(profile, catalog);
+    const progress = await db.collection("analyticsSnapshots").findOne({ studentId: new ObjectId(studentId) }, { sort: { generatedAt: -1 } });
+    const attempt = await geminiPlan(profile, catalog, progress ?? {});
     if ("plan" in attempt) return attempt;
     return { plan: rulesPlan(profile, catalog), source: "rules-engine", providerFailures: attempt.failures };
   }
@@ -208,12 +209,12 @@ export function rulesPlan(profile: any, catalog: CatalogExercise[]): WorkoutPlan
         title: slot.title,
         focusMuscles: focus,
         exercises: [
+          ...stretches.map(e => ({ exerciseId: String(e._id), phase: "alongamento" as const, sets: 2, reps: "30s", restSeconds: 20, reserveExerciseIds: [] })),
           ...warmups.map(e => ({ exerciseId: String(e._id), phase: "aquecimento" as const, sets: 2, reps: "12-15", restSeconds: 30, reserveExerciseIds: [] })),
           ...picked.map(({ exercise, reserves }) => ({
             exerciseId: String(exercise._id), phase: "principal" as const, sets, reps, restSeconds: rest,
             reserveExerciseIds: reserves.map(r => String(r._id))
-          })),
-          ...stretches.map(e => ({ exerciseId: String(e._id), phase: "alongamento" as const, sets: 2, reps: "30s", restSeconds: 20, reserveExerciseIds: [] }))
+          }))
         ]
       };
     })
@@ -315,9 +316,9 @@ const geminiPlanSchema = {
   }
 } as const;
 
-async function geminiPlan(profile: any, catalog: CatalogExercise[]): Promise<GeneratedPlan | { failures: string[] }> {
+async function geminiPlan(profile: any, catalog: CatalogExercise[], progress: Record<string, unknown>): Promise<GeneratedPlan | { failures: string[] }> {
   const available = Array.isArray(profile.equipment) ? profile.equipment : ["peso_corporal"];
-  const payload = safePromptProfile(profile);
+  const payload = safePromptProfile(profile, progress);
   const compactCatalog = catalog.map((exercise: any) => ({
     id: String(exercise._id),
     nome: exercise.name,
@@ -333,14 +334,15 @@ async function geminiPlan(profile: any, catalog: CatalogExercise[]): Promise<Gen
 
 REGRAS OBRIGATÓRIAS:
 1. Retorne exatamente os 7 weekdays (0=domingo a 6=sábado). Somente os dias ${JSON.stringify(profile.trainingDays)} têm treino; os demais têm exercises=[].
-2. Cada dia de treino deve vir nesta ordem: 2-3 itens phase="aquecimento", 4-7 itens phase="principal" e 1-2 itens phase="alongamento".
+2. Cada dia de treino deve vir nesta ordem: 1-2 itens phase="alongamento", 2-3 itens phase="aquecimento" e 4-7 itens phase="principal".
 3. Todo exercício principal deve usar equipamento com disponivel=true e ter de 1 a 3 reserveExerciseIds.
 4. Cada reserva deve ter o MESMO alvo_exato do principal, mas equipamento diferente. Nunca troque cabeça lateral do ombro por cabeça anterior/posterior. Elevação lateral só aceita reserva de alvo ombro_cabeca_lateral; elevação frontal nunca é equivalente.
 5. Para exercícios de máquina, cabo ou smith, inclua ao menos uma reserva do mesmo alvo_exato com halter, anilha, barra, elástico ou peso corporal.
 6. Nenhum ID pode se repetir na semana inteira, nem como principal, aquecimento, alongamento ou reserva.
 7. Dia com ombros exige aquecimento do manguito rotador (alvo_exato começando por manguito_rotador_).
 8. Alongamentos devem ter alongamento=true; aquecimentos devem ter aquecimento=true.
-9. Respeite nível, duração, lesões, descanso e volume. Não diagnostique e não invente IDs.
+9. Personalize volume, repetições, descanso e seleção principalmente para goal, priorityMuscles, intensity, level, durationMinutes e equipment. Use progressSummary para progressão gradual, sem saltos bruscos.
+10. Respeite lesões e recuperação. Não diagnostique, não invente IDs e escreva títulos em português.
 
 Perfil desidentificado: ${JSON.stringify(payload)}
 Catálogo: ${JSON.stringify(compactCatalog)}`;

@@ -174,7 +174,8 @@ async function resolvePlanDay(studentId: string, weekday: number) {
     .map(id => new ObjectId(id));
   const exercises = await db.collection("exercises").find({ _id: { $in: ids } }).project({ name: 1, equipment: 1, musclePrimary: 1, targetKey: 1 }).toArray();
   const byId = new Map(exercises.map(e => [String(e._id), e]));
-  return { ...day, exercises: day.exercises.map((item: any) => ({
+  const phaseOrder: Record<string, number> = { alongamento: 0, aquecimento: 1, principal: 2 };
+  return { ...day, exercises: [...day.exercises].sort((a: any, b: any) => (phaseOrder[a.phase] ?? 99) - (phaseOrder[b.phase] ?? 99)).map((item: any) => ({
     ...item,
     ...byId.get(item.exerciseId),
     id: item.exerciseId,
