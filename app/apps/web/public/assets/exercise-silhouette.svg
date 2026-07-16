@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 96">
+  <defs><filter id="b"><feGaussianBlur stdDeviation="1.8"/></filter></defs>
+  <g fill="#e43d4f" filter="url(#b)" opacity=".9">
+    <circle cx="36" cy="15" r="9"/>
+    <path d="M27 27c5-5 13-5 18 0l5 21-7 16 5 27H37l-2-21-3 21H21l7-28-6-16z"/>
+    <path d="m27 31-12 26-7-4 13-29zm18 0 12 26 7-4-13-29z"/>
+  </g>
+</svg>

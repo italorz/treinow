@@ -3,6 +3,15 @@ import { useEffect, useState, type SyntheticEvent } from "react";
 import { api } from "./api";
 
 const blockContextMenu = (e: SyntheticEvent) => e.preventDefault();
+const videoUrls = new Map<string, { url: string; expiresAt: number }>();
+
+async function getVideoUrl(id: string) {
+  const cached = videoUrls.get(id);
+  if (cached && cached.expiresAt > Date.now()) return cached.url;
+  const data = await api<{ url: string }>(`/exercises/${id}/video-url`);
+  videoUrls.set(id, { url: data.url, expiresAt: Date.now() + 4 * 60_000 });
+  return data.url;
+}
 
 // Reproduz o vídeo do exercício automaticamente, em loop, como uma miniatura
 // animada. A lupa abre o mesmo modal limitado usado na biblioteca. Download
@@ -17,7 +26,7 @@ export function ExerciseVideo({ id, eager = true, controls = false, className = 
   async function load() {
     if (url || loading) return;
     setLoading(true);
-    try { const d = await api<{ url: string }>(`/exercises/${id}/video-url`); setUrl(d.url); }
+    try { setUrl(await getVideoUrl(id)); }
     finally { setLoading(false); }
   }
   useEffect(() => { if (eager) load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [id, eager]);
@@ -30,6 +39,9 @@ export function ExerciseVideo({ id, eager = true, controls = false, className = 
     </span>
     {zoom && <VideoLightbox id={id} onClose={() => setZoom(false)}/>}
   </>;
+  if (!eager) return <button type="button" className={`video-poster alternative-poster ${className}`} onClick={load} aria-label="Carregar vídeo do exercício">
+    <img src="/assets/exercise-silhouette.svg" alt="" aria-hidden="true"/><span className="alternative-play">▶</span>
+  </button>;
   return <span className={`video-poster ${className}`} aria-label="Carregando vídeo"><span className="spinner"/></span>;
 }
 
@@ -37,7 +49,7 @@ export function ExerciseVideo({ id, eager = true, controls = false, className = 
 // Busca uma URL assinada nova ao abrir, pois a anterior pode ter expirado.
 function VideoLightbox({ id, onClose }: { id: string; onClose: () => void }) {
   const [url, setUrl] = useState("");
-  useEffect(() => { api<{ url: string }>(`/exercises/${id}/video-url`).then(d => setUrl(d.url)); }, [id]);
+  useEffect(() => { getVideoUrl(id).then(setUrl); }, [id]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     document.body.style.overflow = "hidden"; window.addEventListener("keydown", onKey);

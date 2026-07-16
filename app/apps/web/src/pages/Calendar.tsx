@@ -59,7 +59,7 @@ function DayModal({ weekday, onClose }: { weekday: number; onClose: () => void }
             {!!e.reserves?.length && <details className="reserves">
               <summary>Alternativas sem depender do aparelho</summary>
               {e.reserves.map((r: any) => <div key={r.id} className="reserve-row">
-                <ExerciseVideo id={r.id} className="reserve-video"/>
+                <ExerciseVideo id={r.id} eager={false} className="reserve-video"/>
                 <div><strong>{r.name}</strong><EquipmentIcon equipment={r.equipment} name={r.name}/></div>
               </div>)}
             </details>}

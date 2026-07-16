@@ -7,6 +7,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
+      includeAssets: ["icon.svg", "assets/*.svg"],
       manifest: {
         name: "Treinow", short_name: "Treinow", description: "Seu treino inteligente",
         theme_color: "#0b1020", background_color: "#f5f7fb", display: "standalone",
@@ -16,7 +17,10 @@ export default defineConfig({
       },
       workbox: {
         navigateFallback: "/index.html",
-        runtimeCaching: [{ urlPattern: /^.*\/v1\/.*/i, handler: "NetworkOnly" }]
+        runtimeCaching: [
+          { urlPattern: /^.*\/assets\/.*\.(?:svg|png)$/i, handler: "CacheFirst", options: { cacheName: "treinow-icons", expiration: { maxEntries: 32, maxAgeSeconds: 2592000 } } },
+          { urlPattern: /^.*\/v1\/.*/i, handler: "NetworkOnly" }
+        ]
       }
     })
   ],

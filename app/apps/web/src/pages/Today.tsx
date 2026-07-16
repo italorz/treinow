@@ -35,7 +35,7 @@ function TodayExercise({ exercise, index }: any) {
       {!!exercise.reserves?.length && <details className="reserves" onToggle={e => setShowReserves((e.target as HTMLDetailsElement).open)}>
         <summary>Alternativas sem depender do aparelho</summary>
         {showReserves && exercise.reserves.map((reserve: any) => <div key={reserve.id} className="reserve-row">
-          <ExerciseVideo id={reserve.id} className="reserve-video"/>
+          <ExerciseVideo id={reserve.id} eager={false} className="reserve-video"/>
           <div><strong>{reserve.name}</strong><EquipmentIcon equipment={reserve.equipment} name={reserve.name}/></div>
         </div>)}
       </details>}
