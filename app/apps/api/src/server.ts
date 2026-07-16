@@ -237,6 +237,10 @@ app.patch("/v1/workouts/sessions/:id/selection", async request => {
   const user = await requireUser(request); const { id } = request.params as any;
   const { slotExerciseId, selectedExerciseId } = request.body as any;
   if (!ObjectId.isValid(id) || !ObjectId.isValid(slotExerciseId) || (selectedExerciseId && !ObjectId.isValid(selectedExerciseId))) throw Object.assign(new Error("Seleção inválida"), { statusCode: 400 });
+  const day: any = await resolvePlanDay(user.id, new Date().getDay());
+  const slot = day?.exercises?.find((item: any) => item.id === slotExerciseId);
+  const allowedIds = new Set<string>(slot ? [slot.id, ...(slot.reserves ?? []).map((reserve: any) => reserve.id)] : []);
+  if (!slot || (selectedExerciseId && !allowedIds.has(selectedExerciseId))) throw Object.assign(new Error("O exercício selecionado não pertence a este bloco"), { statusCode: 400 });
   const key = `selections.${slotExerciseId}`;
   const update = selectedExerciseId ? { $set: { [key]: selectedExerciseId, updatedAt: new Date() } } : { $unset: { [key]: "" }, $set: { updatedAt: new Date() } };
   const session = await db.collection("workoutSessions").findOneAndUpdate({ _id: new ObjectId(id), studentId: new ObjectId(user.id), status: "active" }, update, { returnDocument: "after" });
@@ -248,9 +252,15 @@ app.post("/v1/workouts/sessions/:id/finish", async request => {
   const session: any = ObjectId.isValid(id) ? await db.collection("workoutSessions").findOne({ _id: new ObjectId(id), studentId: new ObjectId(user.id), status: "active" }) : null;
   if (!session) throw Object.assign(new Error("Treino ativo não encontrado"), { statusCode: 404 });
   const day: any = await resolvePlanDay(user.id, new Date().getDay());
-  const missing = (day?.exercises ?? []).filter((item: any) => !session.selections?.[item.id]).map((item: any) => item.id);
+  const validSelections = new Map<string, string>();
+  for (const item of day?.exercises ?? []) {
+    const selectedId = session.selections?.[item.id];
+    const allowedIds = new Set([item.id, ...(item.reserves ?? []).map((reserve: any) => reserve.id)]);
+    if (typeof selectedId === "string" && allowedIds.has(selectedId)) validSelections.set(item.id, selectedId);
+  }
+  const missing = (day?.exercises ?? []).filter((item: any) => !validSelections.has(item.id)).map((item: any) => item.id);
   if (missing.length && !body.confirmIncomplete) return { requiresConfirmation: true, missingCount: missing.length };
-  const selected = Object.values(session.selections ?? {}).filter((value): value is string => typeof value === "string" && ObjectId.isValid(value));
+  const selected = [...validSelections.values()].filter(value => ObjectId.isValid(value));
   if (selected.length) await db.collection("workoutLogs").insertMany(selected.map(exerciseId => ({ studentId: new ObjectId(user.id), exerciseId: new ObjectId(exerciseId), sets: 1, reps: 1, loadKg: 0, completedAt: new Date(), sessionId: session._id })));
   await db.collection("workoutSessions").updateOne({ _id: session._id }, { $set: { status: "finished", comment: String(body.comment ?? "").slice(0, 1000), missingExerciseIds: missing, finishedAt: new Date() } });
   await queues.analytics.add("refresh", { studentId: user.id }, jobOptions(`analytics:${user.id}:${Date.now()}`));
