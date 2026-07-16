@@ -61,6 +61,12 @@ describe("rulesPlan", () => {
     const ids = plan.days[1]!.exercises.flatMap(i => [i.exerciseId, ...i.reserveExerciseIds]);
     expect(ids).toContain("l1");
   });
+  it("troca o exercício feito na semana anterior e o mantém como alternativa conhecida", () => {
+    const plan = rulesPlan(baseProfile, catalog, new Set(["p1"]));
+    const day = plan.days[1]!;
+    expect(day.exercises.filter(i => i.phase === "principal").map(i => i.exerciseId)).not.toContain("p1");
+    expect(day.exercises.flatMap(i => i.reserveExerciseIds)).toContain("p1");
+  });
 });
 
 describe("rulesPlan com o catálogo real", () => {

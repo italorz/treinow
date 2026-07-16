@@ -61,7 +61,16 @@ new Worker("invitations", async job => {
   return { queued: true, recipientHash: String(job.data.email).split("@")[1] };
 }, { connection, concurrency: 2 });
 
+new Worker("maintenance", async job => {
+  if (job.name !== "rotate-weekly-plans") return;
+  const cutoff = new Date(Date.now() - 7 * 86400000);
+  const due = await db.collection("workoutPlans").find({ active: true, createdAt: { $lte: cutoff } }).project({ studentId: 1 }).toArray();
+  for (const plan of due) await new Queue("workout", { connection }).add("generate", { studentId: String(plan.studentId) }, { jobId: `weekly:${plan.studentId}:${new Date().toISOString().slice(0, 10)}`, removeOnComplete: 1000 });
+  return { queued: due.length };
+}, { connection, concurrency: 1 });
+
 console.log("Treinow workers ativos");
+await new Queue("maintenance", { connection }).add("rotate-weekly-plans", {}, { repeat: { pattern: "15 3 * * *" }, jobId: "rotate-weekly-plans" });
 if (existsSync("/app/catalog/exercises.pt-BR.json")) {
   const catalogQueue = new Queue("catalog", { connection });
   const catalogContent = await readFile("/app/catalog/exercises.pt-BR.json");

@@ -32,14 +32,18 @@ export async function generatePlan(studentId: string): Promise<GeneratedPlan> {
   }).toArray() as unknown as CatalogExercise[];
   const catalog = balancedCatalog(allExercises);
   if (!catalog.length) throw new Error("Catálogo compatível vazio");
+  const recentLogs = await db.collection("workoutLogs").find({
+    studentId: new ObjectId(studentId), completedAt: { $gte: new Date(Date.now() - 8 * 86400000) }
+  }).project({ exerciseId: 1 }).toArray();
+  const recentExerciseIds = new Set(recentLogs.map(log => String(log.exerciseId)));
 
   if (config.PLAN_ENGINE === "gemini" && config.GEMINI_API_KEY) {
     const progress = await db.collection("analyticsSnapshots").findOne({ studentId: new ObjectId(studentId) }, { sort: { generatedAt: -1 } });
-    const attempt = await geminiPlan(profile, catalog, progress ?? {});
+    const attempt = await geminiPlan(profile, catalog, progress ?? {}, recentExerciseIds);
     if ("plan" in attempt) return attempt;
-    return { plan: rulesPlan(profile, catalog), source: "rules-engine", providerFailures: attempt.failures };
+    return { plan: rulesPlan(profile, catalog, recentExerciseIds), source: "rules-engine", providerFailures: attempt.failures };
   }
-  return { plan: rulesPlan(profile, catalog), source: "rules-engine" };
+  return { plan: rulesPlan(profile, catalog, recentExerciseIds), source: "rules-engine" };
 }
 
 // ---------------------------------------------------------------------------
@@ -116,7 +120,7 @@ function splitFor(daysCount: number): { title: string; muscles: string[] }[] {
   return chosen.map(day => ({ title: day.title, muscles: [...day.muscles] }));
 }
 
-export function rulesPlan(profile: any, catalog: CatalogExercise[]): WorkoutPlan {
+export function rulesPlan(profile: any, catalog: CatalogExercise[], recentExerciseIds = new Set<string>()): WorkoutPlan {
   const activeDays = [...new Set<number>(profile.trainingDays ?? [])].sort((a, b) => a - b);
   const available = new Set<string>([...(profile.equipment ?? []), "peso_corporal"]);
   const priorities: string[] = Array.isArray(profile.priorityMuscles) ? profile.priorityMuscles : [];
@@ -132,7 +136,7 @@ export function rulesPlan(profile: any, catalog: CatalogExercise[]): WorkoutPlan
   const mark = (exercise: CatalogExercise) => { used.add(String(exercise._id)); usedNames.add(normalizedName(exercise.name)); };
   const unused = (exercise: CatalogExercise) => !used.has(String(exercise._id)) && !usedNames.has(normalizedName(exercise.name));
   const isMainCandidate = (exercise: CatalogExercise) =>
-    !exercise.isWarmup && !exercise.isStretch && available.has(exercise.equipment) && safe(exercise) && unused(exercise);
+    !exercise.isWarmup && !exercise.isStretch && !recentExerciseIds.has(String(exercise._id)) && available.has(exercise.equipment) && safe(exercise) && unused(exercise);
 
   const template = splitFor(activeDays.length || 1);
   priorities.forEach((muscle, i) => {
@@ -155,10 +159,10 @@ export function rulesPlan(profile: any, catalog: CatalogExercise[]): WorkoutPlan
       const pickFor = (muscle?: string) => {
         const candidate = catalog.find(exercise =>
           (muscle ? exercise.musclePrimary === muscle : true) && isMainCandidate(exercise) &&
-          findReserves(exercise, catalog, used, usedNames, safe, available).length > 0
+          findReserves(exercise, catalog, used, usedNames, safe, available, recentExerciseIds).length > 0
         );
         if (!candidate) return false;
-        const reserves = findReserves(candidate, catalog, used, usedNames, safe, available);
+        const reserves = findReserves(candidate, catalog, used, usedNames, safe, available, recentExerciseIds);
         mark(candidate); reserves.forEach(mark);
         picked.push({ exercise: candidate, reserves });
         return true;
@@ -224,7 +228,7 @@ export function rulesPlan(profile: any, catalog: CatalogExercise[]): WorkoutPlan
 
 function findReserves(
   exercise: CatalogExercise, catalog: CatalogExercise[], used: Set<string>, usedNames: Set<string>,
-  safe: (e: CatalogExercise) => boolean, available: Set<string>
+  safe: (e: CatalogExercise) => boolean, available: Set<string>, recentExerciseIds = new Set<string>()
 ) {
   const eligible = catalog.filter(reserve =>
     !used.has(String(reserve._id)) && !usedNames.has(normalizedName(reserve.name)) &&
@@ -235,6 +239,7 @@ function findReserves(
   // Reserva serve quando o aparelho do principal está ocupado: prioriza
   // equipamento que o aluno tem e, entre eles, os de peso livre.
   eligible.sort((a, b) =>
+    Number(recentExerciseIds.has(String(b._id))) - Number(recentExerciseIds.has(String(a._id))) ||
     Number(available.has(b.equipment)) - Number(available.has(a.equipment)) ||
     Number(freeEquipment.has(b.equipment)) - Number(freeEquipment.has(a.equipment))
   );
@@ -316,7 +321,7 @@ const geminiPlanSchema = {
   }
 } as const;
 
-async function geminiPlan(profile: any, catalog: CatalogExercise[], progress: Record<string, unknown>): Promise<GeneratedPlan | { failures: string[] }> {
+async function geminiPlan(profile: any, catalog: CatalogExercise[], progress: Record<string, unknown>, recentExerciseIds = new Set<string>()): Promise<GeneratedPlan | { failures: string[] }> {
   const available = Array.isArray(profile.equipment) ? profile.equipment : ["peso_corporal"];
   const payload = safePromptProfile(profile, progress);
   const compactCatalog = catalog.map((exercise: any) => ({
@@ -326,6 +331,7 @@ async function geminiPlan(profile: any, catalog: CatalogExercise[], progress: Re
     alvo_exato: exercise.targetKey,
     equipamento: exercise.equipment,
     disponivel: available.includes(exercise.equipment) || exercise.equipment === "peso_corporal",
+    feito_ultima_semana: recentExerciseIds.has(String(exercise._id)),
     aquecimento: exercise.isWarmup,
     alongamento: exercise.isStretch,
     articulacoes: exercise.joints
@@ -342,7 +348,8 @@ REGRAS OBRIGATÓRIAS:
 7. Dia com ombros exige aquecimento do manguito rotador (alvo_exato começando por manguito_rotador_).
 8. Alongamentos devem ter alongamento=true; aquecimentos devem ter aquecimento=true.
 9. Personalize volume, repetições, descanso e seleção principalmente para goal, priorityMuscles, intensity, level, durationMinutes e equipment. Use progressSummary para progressão gradual, sem saltos bruscos.
-10. Respeite lesões e recuperação. Não diagnostique, não invente IDs e escreva títulos em português.
+10. Nunca escolha como principal um item feito_ultima_semana=true. Mantenha o mesmo foco muscular com exercícios novos; esses itens podem aparecer como reserva anatomicamente equivalente.
+11. Respeite lesões e recuperação. Não diagnostique, não invente IDs e escreva títulos em português.
 
 Perfil desidentificado: ${JSON.stringify(payload)}
 Catálogo: ${JSON.stringify(compactCatalog)}`;

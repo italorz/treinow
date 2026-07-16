@@ -40,7 +40,7 @@ export function ExerciseVideo({ id, eager = true, controls = false, className = 
     {zoom && <VideoLightbox id={id} onClose={() => setZoom(false)}/>}
   </>;
   if (!eager) return <button type="button" className={`video-poster alternative-poster ${className}`} onClick={load} aria-label="Carregar vídeo do exercício">
-    <img src="/assets/exercise-silhouette.svg" alt="" aria-hidden="true"/><span className="alternative-play">▶</span>
+    <img src="/assets/ecorche.png" alt="" aria-hidden="true"/><span className="alternative-play">▶</span>
   </button>;
   return <span className={`video-poster ${className}`} aria-label="Carregando vídeo"><span className="spinner"/></span>;
 }

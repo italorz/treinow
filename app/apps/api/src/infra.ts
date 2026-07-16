@@ -43,6 +43,7 @@ export async function connectInfra() {
     db.collection("consents").createIndex({ membershipId: 1, revokedAt: 1 }),
     db.collection("workoutPlans").createIndex({ studentId: 1, active: 1 }),
     db.collection("workoutLogs").createIndex({ studentId: 1, completedAt: -1 }),
+    db.collection("workoutSessions").createIndex({ studentId: 1, workoutDate: 1 }, { unique: true }),
     db.collection("measurements").createIndex({ studentId: 1, measuredAt: -1 }),
     db.collection("sessions").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
     db.collection("invitations").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })

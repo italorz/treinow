@@ -172,7 +172,11 @@ async function resolvePlanDay(studentId: string, weekday: number) {
   const ids = [...new Set(rawIds)]
     .filter(id => ObjectId.isValid(id))
     .map(id => new ObjectId(id));
-  const exercises = await db.collection("exercises").find({ _id: { $in: ids } }).project({ name: 1, equipment: 1, musclePrimary: 1, targetKey: 1 }).toArray();
+  const [exercises, recentLogs] = await Promise.all([
+    db.collection("exercises").find({ _id: { $in: ids } }).project({ name: 1, equipment: 1, musclePrimary: 1, targetKey: 1 }).toArray(),
+    db.collection("workoutLogs").find({ studentId: new ObjectId(studentId), completedAt: { $gte: new Date(Date.now() - 8 * 86400000) } }).project({ exerciseId: 1 }).toArray()
+  ]);
+  const familiar = new Set(recentLogs.map(log => String(log.exerciseId)));
   const byId = new Map(exercises.map(e => [String(e._id), e]));
   const phaseOrder: Record<string, number> = { alongamento: 0, aquecimento: 1, principal: 2 };
   return { ...day, exercises: [...day.exercises].sort((a: any, b: any) => (phaseOrder[a.phase] ?? 99) - (phaseOrder[b.phase] ?? 99)).map((item: any) => ({
@@ -180,7 +184,7 @@ async function resolvePlanDay(studentId: string, weekday: number) {
     ...byId.get(item.exerciseId),
     id: item.exerciseId,
     warmup: item.phase === "aquecimento" || item.warmup === true,
-    reserves: (item.reserveExerciseIds ?? []).map((id: string) => ({ id, ...byId.get(id), _id: undefined })),
+    reserves: (item.reserveExerciseIds ?? []).map((id: string) => ({ id, ...byId.get(id), familiar: familiar.has(id), _id: undefined })),
     _id: undefined
   })) };
 }
@@ -211,6 +215,46 @@ app.post("/v1/workouts/logs", async request => {
   await db.collection("workoutLogs").insertOne(doc);
   await queues.analytics.add("refresh", { studentId }, jobOptions(`analytics:${studentId}:${Date.now()}`));
   return { ok: true };
+});
+
+app.post("/v1/workouts/sessions/start", async request => {
+  const user = await requireUser(request);
+  if (user.role !== "student") throw Object.assign(new Error("Somente o aluno inicia o treino"), { statusCode: 403 });
+  const workoutDate = localDateKey();
+  const result = await db.collection("workoutSessions").findOneAndUpdate(
+    { studentId: new ObjectId(user.id), workoutDate },
+    { $setOnInsert: { startedAt: new Date(), selections: {}, status: "active", createdAt: new Date() } },
+    { upsert: true, returnDocument: "after" }
+  );
+  return { session: shapeSession(result!) };
+});
+app.get("/v1/workouts/sessions/today", async request => {
+  const user = await requireUser(request);
+  const session = await db.collection("workoutSessions").findOne({ studentId: new ObjectId(user.id), workoutDate: localDateKey() });
+  return { session: session ? shapeSession(session) : null };
+});
+app.patch("/v1/workouts/sessions/:id/selection", async request => {
+  const user = await requireUser(request); const { id } = request.params as any;
+  const { slotExerciseId, selectedExerciseId } = request.body as any;
+  if (!ObjectId.isValid(id) || !ObjectId.isValid(slotExerciseId) || (selectedExerciseId && !ObjectId.isValid(selectedExerciseId))) throw Object.assign(new Error("Seleção inválida"), { statusCode: 400 });
+  const key = `selections.${slotExerciseId}`;
+  const update = selectedExerciseId ? { $set: { [key]: selectedExerciseId, updatedAt: new Date() } } : { $unset: { [key]: "" }, $set: { updatedAt: new Date() } };
+  const session = await db.collection("workoutSessions").findOneAndUpdate({ _id: new ObjectId(id), studentId: new ObjectId(user.id), status: "active" }, update, { returnDocument: "after" });
+  if (!session) throw Object.assign(new Error("Treino ativo não encontrado"), { statusCode: 404 });
+  return { session: shapeSession(session) };
+});
+app.post("/v1/workouts/sessions/:id/finish", async request => {
+  const user = await requireUser(request); const { id } = request.params as any; const body = request.body as any;
+  const session: any = ObjectId.isValid(id) ? await db.collection("workoutSessions").findOne({ _id: new ObjectId(id), studentId: new ObjectId(user.id), status: "active" }) : null;
+  if (!session) throw Object.assign(new Error("Treino ativo não encontrado"), { statusCode: 404 });
+  const day: any = await resolvePlanDay(user.id, new Date().getDay());
+  const missing = (day?.exercises ?? []).filter((item: any) => !session.selections?.[item.id]).map((item: any) => item.id);
+  if (missing.length && !body.confirmIncomplete) return { requiresConfirmation: true, missingCount: missing.length };
+  const selected = Object.values(session.selections ?? {}).filter((value): value is string => typeof value === "string" && ObjectId.isValid(value));
+  if (selected.length) await db.collection("workoutLogs").insertMany(selected.map(exerciseId => ({ studentId: new ObjectId(user.id), exerciseId: new ObjectId(exerciseId), sets: 1, reps: 1, loadKg: 0, completedAt: new Date(), sessionId: session._id })));
+  await db.collection("workoutSessions").updateOne({ _id: session._id }, { $set: { status: "finished", comment: String(body.comment ?? "").slice(0, 1000), missingExerciseIds: missing, finishedAt: new Date() } });
+  await queues.analytics.add("refresh", { studentId: user.id }, jobOptions(`analytics:${user.id}:${Date.now()}`));
+  return { finished: true };
 });
 app.post("/v1/measurements", async request => {
   const user = await requireUser(request);
@@ -308,6 +352,8 @@ function mediaSignature(id: string, expires: number) { return createHmac("sha256
 function safeEqual(a: string, b: string) { const aa = Buffer.from(a); const bb = Buffer.from(b); return aa.length === bb.length && timingSafeEqual(aa, bb); }
 function jobOptions(jobId: string) { return { jobId, attempts: 3, backoff: { type: "exponential" as const, delay: 2000 }, removeOnComplete: 1000, removeOnFail: 5000 }; }
 function mongoSession() { return (db.client as any).startSession(); }
+function localDateKey() { return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date()); }
+function shapeSession(session: any) { return { id: String(session._id), status: session.status, selections: session.selections ?? {}, startedAt: session.startedAt, finishedAt: session.finishedAt }; }
 
 await connectInfra();
 await app.listen({ port: config.PORT, host: "0.0.0.0" });
