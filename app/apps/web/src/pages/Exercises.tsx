@@ -26,9 +26,15 @@ const spots: Record<string, { muscle: string; label: string; x: number; y: numbe
     { muscle: "panturrilha", label: "Panturrilhas", x: 31, y: 69, w: 18.5, h: 19 }
   ]
 };
+function uniqueMuscles(view: "front" | "back") {
+  const seen = new Set<string>();
+  return spots[view].filter(s => (seen.has(s.muscle) ? false : (seen.add(s.muscle), true)));
+}
+
 export function ExercisesPage() {
   const [view, setView] = useState<"front" | "back">("front"); const [muscle, setMuscle] = useState(""); const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<any>(null);
+  const counts = useQuery({ queryKey: ["muscle-summary"], queryFn: () => api<any>("/exercises/muscle-summary"), staleTime: 5 * 60_000 });
   const query = useInfiniteQuery({
     queryKey: ["exercises", muscle, search],
     queryFn: ({ pageParam }) => api<any>(`/exercises?${new URLSearchParams({ ...(muscle ? { muscle } : {}), ...(search ? { search } : {}), ...(pageParam ? { cursor: pageParam } : {}) })}`),
@@ -37,11 +43,24 @@ export function ExercisesPage() {
   const sentinel = useRef<HTMLDivElement>(null);
   useEffect(() => { const io = new IntersectionObserver(e => e[0]?.isIntersecting && query.hasNextPage && query.fetchNextPage(), { rootMargin: "300px" }); if (sentinel.current) io.observe(sentinel.current); return () => io.disconnect(); }, [query.hasNextPage, query.fetchNextPage]);
   const items = query.data?.pages.flatMap(p => p.items) ?? [];
+  const toggleMuscle = (m: string) => setMuscle(muscle === m ? "" : m);
   return <section className="page">
     <div className="page-title"><div><span className="eyebrow">BIBLIOTECA</span><h1>Exercícios</h1></div></div>
     <div className="anatomy-card">
       <div className="segmented compact"><button className={view === "front" ? "selected" : ""} onClick={() => setView("front")}>Frente</button><button className={view === "back" ? "selected" : ""} onClick={() => setView("back")}>Costas</button></div>
-      <div className={`anatomy ${view}`}><img src="/assets/ecorche.png" alt={`Écorché de ${view === "front" ? "frente" : "costas"}`}/>{spots[view].map(s => <button key={`${s.muscle}${s.x}`} aria-label={s.label} className={muscle === s.muscle ? "hotspot active" : "hotspot"} style={{ left: `${s.x}%`, top: `${s.y}%`, width: `${s.w}%`, height: `${s.h}%` }} onClick={() => setMuscle(muscle === s.muscle ? "" : s.muscle)}/>)}</div>
+      <div className="anatomy">
+        <div className={`anatomy-layer front ${view === "front" ? "visible" : ""}`}><img src="/assets/ecorche.png" alt="Écorché de frente" loading="eager"/></div>
+        <div className={`anatomy-layer back ${view === "back" ? "visible" : ""}`}><img src="/assets/ecorche.png" alt="Écorché de costas" loading="eager"/></div>
+        <div className="anatomy-hotspots">
+          {spots[view].map(s => <button key={`${s.muscle}${s.x}`} type="button" aria-label={`${s.label}${counts.data?.counts?.[s.muscle] ? ` · ${counts.data.counts[s.muscle]} exercícios` : ""}`}
+            className={muscle === s.muscle ? "hotspot active" : "hotspot"} style={{ left: `${s.x}%`, top: `${s.y}%`, width: `${s.w}%`, height: `${s.h}%` }} onClick={() => toggleMuscle(s.muscle)}>
+            <span className="hotspot-label">{s.label}{counts.data?.counts?.[s.muscle] != null && <em> · {counts.data.counts[s.muscle]}</em>}</span>
+          </button>)}
+        </div>
+      </div>
+      <div className="muscle-chips">{uniqueMuscles(view).map(s => <button key={s.muscle} type="button" className={muscle === s.muscle ? "selected" : ""} onClick={() => toggleMuscle(s.muscle)}>
+        {s.label}{counts.data?.counts?.[s.muscle] != null && <span className="chip-count">{counts.data.counts[s.muscle]}</span>}
+      </button>)}</div>
       <p>Toque em um grupo muscular para filtrar</p>
     </div>
     <label className="search"><Search size={19}/><input type="search" placeholder="Nome, halter, barra, cabo..." value={search} onChange={e => setSearch(e.target.value)}/></label>
