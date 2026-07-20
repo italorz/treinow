@@ -5,7 +5,10 @@ coverage/
 tmp/
 .env
 CLAUDE.md
+DEPLOY.md
 *.log
 apps/web/public/assets/ecorche-source.png
 __pycache__/
 .pytest_cache/
+.venv/
+*.egg-info/

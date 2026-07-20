@@ -2,14 +2,16 @@
   "name": "treinow",
   "private": true,
   "type": "module",
-  "workspaces": ["apps/api", "apps/web", "packages/contracts"],
+  "workspaces": ["apps/web", "packages/contracts"],
   "scripts": {
-    "build": "npm run build -w @treinow/contracts && npm run build -w @treinow/api && npm run build -w @treinow/web",
-    "test": "npm run test -w @treinow/api && npm run test -w @treinow/web",
+    "build": "npm run build -w @treinow/contracts && npm run build -w @treinow/web",
+    "test": "npm run test -w @treinow/web",
+    "test:api": "cd apps/api && uv run pytest",
     "catalog": "node scripts/build-catalog.mjs",
     "catalog:verify": "node scripts/verify-catalog.mjs",
     "setup": "node scripts/create-dev-env.mjs && npm run catalog",
-    "dev:api": "npm run dev -w @treinow/api",
+    "dev:api": "cd apps/api && uv run uvicorn app.main:app --reload",
+    "dev:worker": "cd apps/api && uv run arq app.worker.WorkerSettings",
     "dev:web": "npm run dev -w @treinow/web"
   },
   "engines": { "node": ">=22" }
