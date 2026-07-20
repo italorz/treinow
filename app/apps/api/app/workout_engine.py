@@ -45,8 +45,7 @@ async def generate_plan(db: AsyncSession, student_id: str) -> GeneratedPlan:
         query = query.where(~Exercise.contraindications.overlap(regions))
     rows = (await db.execute(query)).scalars().all()
     all_exercises = [_to_catalog_exercise(row) for row in rows]
-    catalog = balanced_catalog(all_exercises)
-    if not catalog:
+    if not all_exercises:
         raise PlanGenerationError("Catálogo compatível vazio")
 
     recent_cutoff = _now_minus_days(8)
@@ -56,16 +55,20 @@ async def generate_plan(db: AsyncSession, student_id: str) -> GeneratedPlan:
     recent_exercise_ids = {str(exercise_id) for exercise_id in recent_logs}
 
     if config.PLAN_ENGINE == "gemini" and config.GEMINI_API_KEY:
+        # balanced_catalog() so limita o tamanho do payload enviado a IA; o
+        # motor de regras usa o catalogo completo, senao a mesma reducao cria
+        # escassez artificial e esgota o catalogo em semanas de 7 dias com
+        # treinos longos (motivo do bug "sem 4 exercicios principais").
         snapshot = (
             await db.execute(select(AnalyticsSnapshot).where(AnalyticsSnapshot.student_id == uuid.UUID(student_id)))
         ).scalar_one_or_none()
         progress = _snapshot_dict(snapshot) if snapshot else {}
-        attempt = await gemini_plan(profile, catalog, progress, recent_exercise_ids)
+        attempt = await gemini_plan(profile, balanced_catalog(all_exercises), progress, recent_exercise_ids)
         if attempt is not None and not isinstance(attempt, list):
             return attempt
         failures = attempt if isinstance(attempt, list) else []
-        return GeneratedPlan(plan=rules_plan(profile, catalog, recent_exercise_ids), source="rules-engine", provider_failures=failures)
-    return GeneratedPlan(plan=rules_plan(profile, catalog, recent_exercise_ids), source="rules-engine")
+        return GeneratedPlan(plan=rules_plan(profile, all_exercises, recent_exercise_ids), source="rules-engine", provider_failures=failures)
+    return GeneratedPlan(plan=rules_plan(profile, all_exercises, recent_exercise_ids), source="rules-engine")
 
 
 def _to_catalog_exercise(row: Exercise) -> CatalogExercise:
@@ -208,9 +211,10 @@ def rules_plan(profile: Profile, catalog: list[CatalogExercise], recent_exercise
     def unused(exercise: CatalogExercise) -> bool:
         return exercise.id not in used and normalized_name(exercise.name) not in used_names
 
-    def is_main_candidate(exercise: CatalogExercise) -> bool:
+    def is_main_candidate(exercise: CatalogExercise, allow_recent: bool = False) -> bool:
         return (
-            not exercise.is_warmup and not exercise.is_stretch and exercise.id not in recent_exercise_ids
+            not exercise.is_warmup and not exercise.is_stretch
+            and (allow_recent or exercise.id not in recent_exercise_ids)
             and exercise.equipment in available and safe(exercise) and unused(exercise)
         )
 
@@ -236,11 +240,11 @@ def rules_plan(profile: Profile, catalog: list[CatalogExercise], recent_exercise
 
         picked: list[tuple[CatalogExercise, list[CatalogExercise]]] = []
 
-        def pick_for(muscle: str | None) -> bool:
+        def pick_for(muscle: str | None, allow_recent: bool = False) -> bool:
             for candidate in catalog:
                 if muscle and candidate.muscle_primary != muscle:
                     continue
-                if not is_main_candidate(candidate):
+                if not is_main_candidate(candidate, allow_recent):
                     continue
                 reserves = find_reserves(candidate, catalog, used, used_names, safe, available, recent_exercise_ids)
                 if not reserves:
@@ -252,18 +256,29 @@ def rules_plan(profile: Profile, catalog: list[CatalogExercise], recent_exercise
                 return True
             return False
 
-        round_index = 0
-        while round_index < day_target and len(picked) < day_target:
-            progressed = False
-            for muscle in muscle_order:
-                if len(picked) >= day_target:
+        def fill_rounds(muscles: list[str | None], allow_recent: bool, target: int) -> None:
+            round_index = 0
+            while round_index < target and len(picked) < target:
+                progressed = False
+                for muscle in muscles:
+                    if len(picked) >= target:
+                        break
+                    progressed = pick_for(muscle, allow_recent) or progressed
+                if not progressed:
                     break
-                progressed = pick_for(muscle) or progressed
-            if not progressed:
-                break
-            round_index += 1
-        while len(picked) < 4 and pick_for(None):
-            pass
+                round_index += 1
+
+        # Escalada determinística: cada estágio afrouxa uma restrição só quando
+        # o estágio anterior não bastou, sem depender de IA para preencher o
+        # dia. Isso evita a falha "sem 4 exercícios principais" quando o aluno
+        # já tem muitos treinos recentes e/ou pouco equipamento disponível.
+        fill_rounds(muscle_order, allow_recent=False, target=day_target)  # 1) grupos prioritários, sem repetir treino recente
+        if len(picked) < day_target:
+            fill_rounds(muscle_order, allow_recent=True, target=day_target)  # 2) mesmos grupos, aceitando repetir treino recente
+        if len(picked) < 4:
+            fill_rounds([None], allow_recent=False, target=4)  # 3) qualquer grupo muscular, sem repetir treino recente
+        if len(picked) < 4:
+            fill_rounds([None], allow_recent=True, target=4)  # 4) qualquer grupo muscular, aceitando repetir treino recente
 
         focus = list(dict.fromkeys(exercise.muscle_primary for exercise, _ in picked))[:3]
         shoulder_day = any(exercise.target_key.startswith("ombro_") for exercise, _ in picked)
@@ -272,10 +287,21 @@ def rules_plan(profile: Profile, catalog: list[CatalogExercise], recent_exercise
             return e.target_key.startswith("manguito_rotador_")
 
         warm_pool = [e for e in catalog if e.is_warmup and safe(e) and unused(e)]
+        if not warm_pool:
+            # Ultimo recurso: sem opcao seguindo o filtro de lesao mas ainda
+            # inedita na semana (nunca repete exercicio) - melhor aquecer com
+            # algo fora da preferencia de lesao do que nao ter aquecimento.
+            warm_pool = [e for e in catalog if e.is_warmup and unused(e)]
         warm_take = 2 if unique_names(warm_pool) >= remaining_days * 2 else 1
         warmups: list[CatalogExercise] = []
         if shoulder_day:
-            warmups.extend(unique_by_name([e for e in warm_pool if is_cuff(e)], used_names, 1))
+            cuff_pool = [e for e in warm_pool if is_cuff(e)]
+            if not cuff_pool:
+                # Mesmo raciocinio do warm_pool: sem manguito seguro e inedito
+                # sobrando, aceita qualquer manguito ainda nao usado na semana
+                # em vez de deixar o dia de ombro sem esse aquecimento.
+                cuff_pool = [e for e in catalog if e.is_warmup and is_cuff(e) and unused(e)]
+            warmups.extend(unique_by_name(cuff_pool, used_names, 1))
             for exercise in warmups:
                 mark(exercise)
         non_cuff_pool = [e for e in warm_pool if not is_cuff(e) and unused(e)]
@@ -285,6 +311,11 @@ def rules_plan(profile: Profile, catalog: list[CatalogExercise], recent_exercise
             + non_cuff_pool
         )
         extra_warmups = unique_by_name(ordered_warmups, used_names, max(warm_take - len(warmups), 0 if warmups else 1))
+        if not extra_warmups and not warmups:
+            # Nao sobrou nenhum aquecimento "nao-manguito" inedito: aceita
+            # qualquer aquecimento restante do warm_pool, cuff ou nao, para
+            # garantir pelo menos 1 aquecimento no dia.
+            extra_warmups = unique_by_name(warm_pool, used_names, 1)
         for exercise in extra_warmups:
             mark(exercise)
         warmups.extend(extra_warmups)
@@ -293,6 +324,11 @@ def rules_plan(profile: Profile, catalog: list[CatalogExercise], recent_exercise
             [e for e in catalog if e.is_stretch and safe(e) and unused(e)],
             key=lambda e: e.muscle_primary in focus, reverse=True,
         )
+        if not stretch_pool:
+            # Mesmo ultimo recurso do aquecimento: aceita alongamento fora do
+            # filtro de lesao, ainda inedito na semana, em vez de dia sem
+            # alongamento nenhum.
+            stretch_pool = [e for e in catalog if e.is_stretch and unused(e)]
         stretch_take = 2 if unique_names(stretch_pool) >= remaining_days * 2 else 1
         stretches = unique_by_name(stretch_pool, used_names, stretch_take)
         for exercise in stretches:

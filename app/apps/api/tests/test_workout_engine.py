@@ -80,10 +80,10 @@ def test_swaps_exercise_done_last_week_but_keeps_it_as_known_reserve():
     assert "p1" in [rid for item in day.exercises for rid in item.reserveExerciseIds]
 
 
-def test_full_week_with_real_catalog_bodyweight_and_dumbbells_only():
+def _load_real_catalog() -> list[CatalogExercise]:
     catalog_path = Path(__file__).resolve().parents[3] / "catalog" / "exercises.pt-BR.json"
     raw = json.loads(catalog_path.read_text(encoding="utf-8"))
-    real = [
+    return [
         CatalogExercise(
             id=f"id{i}", name=item["name"], muscle_primary=item["musclePrimary"], equipment=item["equipment"],
             target_key=item["targetKey"], is_warmup=item.get("isWarmup", False), is_stretch=item.get("isStretch", False),
@@ -91,13 +91,48 @@ def test_full_week_with_real_catalog_bodyweight_and_dumbbells_only():
         )
         for i, item in enumerate(raw) if not item.get("needsReview") and item.get("targetKey")
     ]
-    balanced = balanced_catalog(real)
-    profile = base_profile(training_days=[0, 1, 2, 3, 4, 5, 6], equipment=["peso_corporal", "halter"], priority_muscles=[])
-    plan = rules_plan(profile, balanced)
+
+
+def _assert_every_day_is_complete(plan) -> None:
     for day in plan.days:
         assert len([i for i in day.exercises if i.phase == "aquecimento"]) >= 1
         assert len([i for i in day.exercises if i.phase == "principal"]) >= 4
         assert len([i for i in day.exercises if i.phase == "alongamento"]) >= 1
+
+
+def test_full_week_with_real_catalog_bodyweight_and_dumbbells_only():
+    balanced = balanced_catalog(_load_real_catalog())
+    profile = base_profile(training_days=[0, 1, 2, 3, 4, 5, 6], equipment=["peso_corporal", "halter"], priority_muscles=[])
+    _assert_every_day_is_complete(rules_plan(profile, balanced))
+
+
+def test_full_week_long_workouts_survive_narrow_equipment_and_rare_priority_muscles():
+    # Regressao: com balanced_catalog() (usado antes so para limitar o payload
+    # da IA) alimentando tambem o motor de regras, uma semana de 7 dias com
+    # treinos de 90min, equipamento raro ("bola") e musculos prioritarios de
+    # catalogo pequeno (panturrilha/trapezio/antebraco) esgotava o catalogo
+    # reduzido no ultimo dia e falhava com "sem 4 exercicios principais".
+    real = _load_real_catalog()
+    profile = base_profile(
+        training_days=[0, 1, 2, 3, 4, 5, 6], duration_minutes=90, equipment=["bola"],
+        priority_muscles=["panturrilha", "trapezio", "antebraco"],
+        injuries=[{"region": "joelho", "severity": "grave", "status": "cronica", "medicallyCleared": True}],
+    )
+    _assert_every_day_is_complete(rules_plan(profile, real))
+
+
+def test_regenerating_plan_with_many_recent_exercises_still_succeeds():
+    # Regressao: quando o aluno ja treinou bastante (muitos exerciseId ficam
+    # de fora dos "principais" por estarem em recent_exercise_ids), equipamento
+    # restrito + semana cheia + treino curto podia esgotar as opcoes e falhar
+    # a geracao inteira em vez de simplesmente aceitar repetir algo recente.
+    real = _load_real_catalog()
+    profile = base_profile(
+        training_days=[0, 1, 2, 3, 4, 5, 6], duration_minutes=30, equipment=["peso_corporal", "elastico"],
+        priority_muscles=["antebraco"],
+    )
+    recent_ids = {e.id for e in real[:80]}
+    _assert_every_day_is_complete(rules_plan(profile, real, recent_exercise_ids=recent_ids))
 
 
 def test_allowed_by_injury_blocks_heavy_leg_machine_but_allows_calf():
