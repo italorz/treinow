@@ -1,25 +1,24 @@
-FROM node:24-alpine AS build
+FROM python:3.12-slim AS build
+COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /uvx /bin/
 WORKDIR /app
-COPY package*.json ./
-COPY apps/api/package.json apps/api/package.json
-COPY apps/web/package.json apps/web/package.json
-COPY packages/contracts/package.json packages/contracts/package.json
-RUN npm install --include=dev
-COPY packages/contracts packages/contracts
-COPY apps/api apps/api
-RUN npm run build -w @treinow/contracts && npm run build -w @treinow/api
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+COPY apps/api/pyproject.toml apps/api/uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+COPY apps/api/alembic.ini ./
+COPY apps/api/alembic alembic
+COPY apps/api/app app
+RUN uv sync --frozen --no-dev
 
-FROM node:24-alpine
-ENV NODE_ENV=production
+FROM python:3.12-slim
+RUN groupadd -r app && useradd -r -g app app
 WORKDIR /app
-RUN addgroup -S app && adduser -S app -G app
-COPY --from=build /app/node_modules node_modules
-COPY --from=build /app/apps/api/dist apps/api/dist
-COPY --from=build /app/packages/contracts/dist packages/contracts/dist
-COPY apps/api/package.json apps/api/package.json
-COPY packages/contracts/package.json packages/contracts/package.json
+ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+COPY --from=build /app/.venv .venv
+COPY --from=build /app/alembic.ini ./
+COPY --from=build /app/alembic alembic
+COPY --from=build /app/app app
 COPY catalog ./catalog
 COPY videos ./videos
 USER app
 EXPOSE 3000
-CMD ["node", "apps/api/dist/server.js"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3000"]
