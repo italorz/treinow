@@ -9,4 +9,4 @@ PWA de treinos multi-tenant com React, Fastify, MongoDB, Redis/BullMQ e MinIO. O
 3. Execute `docker compose up --build`.
 4. Abra `http://localhost:8080`.
 
-O catálogo é criado localmente a partir de `videos/`; nenhum vídeo é enviado a serviços de IA.
+O catálogo é criado localmente a partir de `packages/acervo-videos/catalogo/videos_identificados.csv` e dos arquivos em `packages/acervo-videos/HD/Sem categoria/`; nenhum vídeo é enviado a serviços de IA.

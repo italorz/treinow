@@ -26,14 +26,20 @@ async def import_catalog(ctx) -> dict:
     async with AsyncSessionLocal() as db:
         async with s3_client() as s3:
             for item in items:
-                local_path = VIDEOS_DIR / item["video"]["fileName"]
-                if not local_path.exists():
+                variants = item["video"].get("variants", {"padrao": item["video"]})
+                missing_video = False
+                for video in variants.values():
+                    local_path = VIDEOS_DIR / video["fileName"]
+                    if not local_path.exists():
+                        missing_video = True
+                        break
+                    object_key = video["objectKey"]
+                    try:
+                        await s3.head_object(Bucket=config.MINIO_BUCKET, Key=object_key)
+                    except Exception:  # noqa: BLE001 - qualquer erro de HEAD significa "precisa subir"
+                        await s3.upload_file(str(local_path), config.MINIO_BUCKET, object_key, ExtraArgs={"ContentType": "video/mp4"})
+                if missing_video:
                     continue
-                object_key = item["video"]["objectKey"]
-                try:
-                    await s3.head_object(Bucket=config.MINIO_BUCKET, Key=object_key)
-                except Exception:  # noqa: BLE001 - qualquer erro de HEAD significa "precisa subir"
-                    await s3.upload_file(str(local_path), config.MINIO_BUCKET, object_key, ExtraArgs={"ContentType": "video/mp4"})
 
                 values = _exercise_values(item)
                 stmt = pg_insert(Exercise).values(**values, slug=item["slug"])

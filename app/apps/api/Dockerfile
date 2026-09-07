@@ -18,7 +18,7 @@ COPY --from=build /app/alembic.ini ./
 COPY --from=build /app/alembic alembic
 COPY --from=build /app/app app
 COPY catalog ./catalog
-COPY videos ./videos
+COPY ["packages/acervo-videos/HD/Sem categoria", "./videos"]
 USER app
 EXPOSE 3000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "3000"]

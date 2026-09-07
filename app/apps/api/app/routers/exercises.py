@@ -10,7 +10,7 @@ from starlette.responses import StreamingResponse
 from ..config import config
 from ..db import get_session, s3_client
 from ..mappers import exercise_detail, exercise_related, exercise_summary
-from ..models import Exercise
+from ..models import Exercise, Profile
 from ..security import SessionUser, media_signature, require_user, safe_equal, verify_csrf
 
 router = APIRouter(prefix="/v1", tags=["exercises"], dependencies=[Depends(verify_csrf)])
@@ -69,23 +69,32 @@ async def get_exercise(exercise_id: str, db: AsyncSession = Depends(get_session)
 
 @router.get("/exercises/{exercise_id}/video-url")
 async def get_video_url(exercise_id: str, db: AsyncSession = Depends(get_session), _user: SessionUser = Depends(require_user)):
-    await _require_exercise(db, exercise_id)
+    exercise = await _require_exercise(db, exercise_id)
+    profile = (await db.execute(select(Profile).where(Profile.student_id == uuid.UUID(_user.id)))).scalar_one_or_none()
+    variants = exercise.video.get("variants", {})
+    preferred = "feminino" if profile and profile.sex == "feminino" else "masculino"
+    variant = preferred if preferred in variants else next(iter(variants), "padrao")
     expires = int(time.time()) + 300
-    signature = media_signature(exercise_id, expires)
-    return {"url": f"{config.PUBLIC_URL}/v1/media/{exercise_id}?expires={expires}&signature={signature}"}
+    signature = media_signature(f"{exercise_id}:{variant}", expires)
+    return {"url": f"{config.PUBLIC_URL}/v1/media/{exercise_id}?variant={variant}&expires={expires}&signature={signature}"}
 
 
 @router.get("/media/{exercise_id}")
 async def get_media(exercise_id: str, request: Request, db: AsyncSession = Depends(get_session)):
     expires = request.query_params.get("expires")
     signature = request.query_params.get("signature")
-    expected = media_signature(exercise_id, int(expires or 0))
+    variant = request.query_params.get("variant", "padrao")
+    expected = media_signature(f"{exercise_id}:{variant}", int(expires or 0))
     if not signature or not expires or int(expires) < time.time() or not safe_equal(signature, expected):
         raise HTTPException(403, "URL de mídia inválida ou expirada")
     exercise = await _require_exercise(db, exercise_id)
     range_header = request.headers.get("range")
 
-    kwargs = {"Bucket": config.MINIO_BUCKET, "Key": exercise.video["objectKey"]}
+    variants = exercise.video.get("variants", {})
+    selected_video = variants.get(variant) if variants else exercise.video
+    if not selected_video:
+        raise HTTPException(404, "Variante de vídeo não encontrada")
+    kwargs = {"Bucket": config.MINIO_BUCKET, "Key": selected_video["objectKey"]}
     if range_header:
         kwargs["Range"] = range_header
 
