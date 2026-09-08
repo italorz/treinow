@@ -12,3 +12,5 @@ __pycache__/
 .pytest_cache/
 .venv/
 *.egg-info/
+packages/acervo-videos/catalogo/*-shm
+packages/acervo-videos/catalogo/*-wal

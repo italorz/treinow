@@ -6,13 +6,15 @@ from pathlib import Path
 
 from arq import cron
 from arq.connections import RedisSettings
-from sqlalchemy import select
+from sqlalchemy import select, delete, func, or_
+from botocore.exceptions import ClientError
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from .analytics import aggregate_progress
 from .config import config
+from .catalog import CATALOG_VERSION, PLAN_CATALOG_TAG, active_catalog
 from .db import AsyncSessionLocal, s3_client
-from .models import AnalyticsSnapshot, Exercise, Measurement, Profile, WorkoutLog, WorkoutPlan
+from .models import AnalyticsSnapshot, Exercise, Measurement, Profile, WorkoutLog, WorkoutPlan, WorkoutSession
 from .plan import normalized_name
 from .workout_engine import PlanGenerationError, generate_plan
 
@@ -22,39 +24,118 @@ VIDEOS_DIR = Path("/app/videos")
 
 async def import_catalog(ctx) -> dict:
     items = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+    if not items or len({i['slug'] for i in items}) != len(items):
+        raise ValueError('Empty catalog or duplicate exercise IDs')
+    unique_videos = {}
+    for item in items:
+        if item.get('classification', {}).get('source') != CATALOG_VERSION:
+            raise ValueError('Catalog version mismatch')
+        for video in item['video']['variants'].values():
+            path = VIDEOS_DIR / video['fileName']
+            if path.parent.resolve() != VIDEOS_DIR.resolve() or not path.is_file():
+                raise ValueError(f"Missing catalog video: {video['fileName']}")
+            if hashlib.sha256(path.read_bytes()).hexdigest() != video['sha256']:
+                raise ValueError(f"Invalid catalog video hash: {video['fileName']}")
+            unique_videos[video['objectKey']] = (path, video)
     imported = 0
     async with AsyncSessionLocal() as db:
         async with s3_client() as s3:
+            # Validate/upload the whole collection before activating any database row.
+            for object_key, (path, video) in unique_videos.items():
+                upload = False
+                try:
+                    obj = await s3.head_object(Bucket=config.MINIO_BUCKET, Key=object_key)
+                    upload = obj['ContentLength'] != path.stat().st_size
+                except ClientError as error:
+                    if error.response['Error']['Code'] not in ('404', 'NoSuchKey', 'NotFound'):
+                        raise
+                    upload = True
+                if upload:
+                    await s3.upload_file(str(path), config.MINIO_BUCKET, object_key, ExtraArgs={'ContentType':'video/mp4','Metadata':{'sha256':video['sha256']}})
+                    obj = await s3.head_object(Bucket=config.MINIO_BUCKET, Key=object_key)
+                    if obj['ContentLength'] != path.stat().st_size:
+                        raise ValueError(f'Incomplete upload: {object_key}')
             for item in items:
-                variants = item["video"].get("variants", {"padrao": item["video"]})
-                missing_video = False
-                for video in variants.values():
-                    local_path = VIDEOS_DIR / video["fileName"]
-                    if not local_path.exists():
-                        missing_video = True
-                        break
-                    object_key = video["objectKey"]
-                    try:
-                        await s3.head_object(Bucket=config.MINIO_BUCKET, Key=object_key)
-                    except Exception:  # noqa: BLE001 - qualquer erro de HEAD significa "precisa subir"
-                        await s3.upload_file(str(local_path), config.MINIO_BUCKET, object_key, ExtraArgs={"ContentType": "video/mp4"})
-                if missing_video:
-                    continue
-
                 values = _exercise_values(item)
                 stmt = pg_insert(Exercise).values(**values, slug=item["slug"])
                 update_values = {**values, "updated_at": datetime.now(timezone.utc)}
                 stmt = stmt.on_conflict_do_update(index_elements=["slug"], set_=update_values)
                 await db.execute(stmt)
                 imported += 1
-                if imported % 50 == 0:
-                    await db.commit()
+            # Authorized test-data cleanup: remove only the legacy catalog and its dependencies.
+            removed, affected_students = await _purge_legacy(db, {i['slug'] for i in items})
             await db.commit()
-    return {"imported": imported}
+        active = (await db.execute(select(func.count()).select_from(Exercise).where(active_catalog()))).scalar_one()
+        retired = (await db.execute(select(func.count()).select_from(Exercise).where(Exercise.is_active.is_(False)))).scalar_one()
+        active_students = select(WorkoutPlan.student_id).where(WorkoutPlan.active.is_(True))
+        pending = set((await db.execute(select(Profile.student_id).where(Profile.student_id.not_in(active_students)))).scalars().all())
+        current_students = set((await db.execute(active_students)).scalars().all())
+        pending.update(affected_students - current_students)
+    for student_id in pending:
+        await ctx['redis'].enqueue_job('generate_workout', str(student_id), _job_id=f'catalog-plan-v2:{student_id}')
+    for student_id in affected_students:
+        await ctx['redis'].enqueue_job('refresh_analytics', str(student_id))
+    stale_videos = await _purge_stale_videos(unique_videos)
+    return {'imported':imported,'active':active,'retired':retired,**removed,'verifiedVideos':len(unique_videos),'deletedVideoObjects':stale_videos,'plansQueued':len(pending),'catalogVersion':CATALOG_VERSION}
+
+
+async def _purge_stale_videos(expected: dict) -> int:
+    """Remove obsolete video objects only; unrelated non-video bucket data is untouched."""
+    expected_keys = set(expected)
+    stale: list[dict] = []
+    token = None
+    async with s3_client() as s3:
+        while True:
+            args = {'Bucket':config.MINIO_BUCKET}
+            if token:
+                args['ContinuationToken'] = token
+            page = await s3.list_objects_v2(**args)
+            for obj in page.get('Contents', []):
+                key = obj['Key']
+                if key.lower().endswith(('.mp4','.webm','.mov','.avi')) and key not in expected_keys:
+                    stale.append({'Key':key})
+            if not page.get('IsTruncated'):
+                break
+            token = page['NextContinuationToken']
+        for offset in range(0, len(stale), 1000):
+            await s3.delete_objects(Bucket=config.MINIO_BUCKET, Delete={'Objects':stale[offset:offset+1000], 'Quiet':True})
+    return len(stale)
+
+
+def _references(value, ids: set[str]) -> bool:
+    if isinstance(value, str):
+        return value in ids
+    if isinstance(value, dict):
+        return any(_references(k, ids) or _references(v, ids) for k, v in value.items())
+    if isinstance(value, list):
+        return any(_references(v, ids) for v in value)
+    return False
+
+
+async def _purge_legacy(db, slugs: set[str]) -> tuple[dict, set]:
+    """FK-ordered, transactional cleanup; never deletes users, profiles or measurements."""
+    legacy = set((await db.execute(select(Exercise.id).where(Exercise.slug.not_in(slugs)))).scalars().all())
+    legacy_strings = {str(e) for e in legacy}
+    plans = (await db.execute(select(WorkoutPlan))).scalars().all()
+    old_plans = [p for p in plans if not p.source.endswith(PLAN_CATALOG_TAG) or _references(p.days, legacy_strings)]
+    affected = {p.student_id for p in old_plans}
+    sessions = (await db.execute(select(WorkoutSession))).scalars().all()
+    old_sessions = [s for s in sessions if s.student_id in affected or _references(s.selections, legacy_strings) or _references(s.missing_exercise_ids, legacy_strings)]
+    session_ids = [s.id for s in old_sessions]
+    affected.update(s.student_id for s in old_sessions)
+    log_filter = or_(WorkoutLog.exercise_id.in_(legacy), WorkoutLog.session_id.in_(session_ids))
+    affected.update((await db.execute(select(WorkoutLog.student_id).where(log_filter))).scalars().all())
+    deleted_logs = (await db.execute(delete(WorkoutLog).where(log_filter))).rowcount
+    deleted_sessions = (await db.execute(delete(WorkoutSession).where(WorkoutSession.id.in_(session_ids)))).rowcount
+    deleted_plans = (await db.execute(delete(WorkoutPlan).where(WorkoutPlan.id.in_([p.id for p in old_plans])))).rowcount
+    deleted_exercises = (await db.execute(delete(Exercise).where(Exercise.id.in_(legacy)))).rowcount
+    await db.execute(delete(AnalyticsSnapshot).where(AnalyticsSnapshot.student_id.in_(affected)))
+    return {'deletedExercises':deleted_exercises,'deletedPlans':deleted_plans,'deletedSessions':deleted_sessions,'deletedLogs':deleted_logs}, affected
 
 
 def _exercise_values(item: dict) -> dict:
     return dict(
+        is_active=True,
         locale=item.get("locale", "pt-BR"), name=item["name"], name_raw=item.get("nameRaw", item["name"]),
         muscle_primary=item["musclePrimary"], secondary_muscles=item.get("secondaryMuscles", []),
         equipment=item["equipment"], complexity=item.get("complexity", "iniciante"),
@@ -83,9 +164,10 @@ async def generate_workout(ctx, student_id: str) -> dict:
         await db.execute(
             WorkoutPlan.__table__.update().where(WorkoutPlan.student_id == uuid.UUID(student_id), WorkoutPlan.active.is_(True)).values(active=False)
         )
-        next_version = (current.version if current else 0) + 1
+        latest_version = (await db.execute(select(func.max(WorkoutPlan.version)).where(WorkoutPlan.student_id == uuid.UUID(student_id)))).scalar_one()
+        next_version = (latest_version or 0) + 1
         db.add(WorkoutPlan(
-            student_id=uuid.UUID(student_id), version=next_version, active=True, source=generated.source,
+            student_id=uuid.UUID(student_id), version=next_version, active=True, source=generated.source[:23] + PLAN_CATALOG_TAG,
             days=[day.model_dump() for day in generated.plan.days],
         ))
         await db.commit()
@@ -160,3 +242,4 @@ class WorkerSettings:
     redis_settings = RedisSettings.from_dsn(config.REDIS_URL)
     on_startup = _startup
     max_jobs = 6
+    job_timeout = 1800

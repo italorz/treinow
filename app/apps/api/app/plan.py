@@ -40,6 +40,12 @@ class CatalogExercise:
     is_stretch: bool
     complexity: str | None = None
     joints: list[str] = field(default_factory=list)
+    required_equipment: list[str] = field(default_factory=list)
+    target_muscles: list[str] = field(default_factory=list)
+    exercise_type: str = 'Strength'
+    name_raw: str = ''
+    source_scores: dict = field(default_factory=dict)
+    measurement: dict = field(default_factory=dict)
 
 
 def normalized_name(name: str) -> str:
@@ -89,6 +95,10 @@ def validate_plan(plan: WorkoutPlan, catalog: list[CatalogExercise], training_da
                 raise ValueError("Aquecimentos e alongamentos não usam reservas")
             if item.phase == "principal" and exercise.equipment not in allowed_main_equipment:
                 raise ValueError("Exercício principal usa equipamento indisponível")
+            if item.phase == 'principal' and (exercise.exercise_type != 'Strength' or exercise.target_key.startswith('individual_')):
+                raise ValueError('Exercício sem relação de força validada para o plano')
+            if item.phase == 'principal' and not set(exercise.required_equipment).issubset(allowed_main_equipment):
+                raise ValueError('Exercício exige equipamento secundário indisponível')
             if item.phase == "principal" and not item.reserveExerciseIds:
                 raise ValueError("Exercício principal sem alternativa reserva")
 
@@ -99,6 +109,8 @@ def validate_plan(plan: WorkoutPlan, catalog: list[CatalogExercise], training_da
                     raise ValueError("Reserva inexistente")
                 if reserve.is_warmup or reserve.is_stretch:
                     raise ValueError("Aquecimento ou alongamento não pode ser exercício reserva")
+                if reserve.exercise_type != 'Strength' or reserve.target_key.startswith('individual_'):
+                    raise ValueError('Reserva sem equivalência de movimento conhecida')
                 if reserve.target_key != exercise.target_key:
                     raise ValueError(f"Reserva sem correlação anatômica exata: {exercise.target_key} != {reserve.target_key}")
                 if reserve.equipment == exercise.equipment:

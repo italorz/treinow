@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 const root = new URL("..", import.meta.url).pathname.replace(/^\/([A-Z]:)/, "$1");
@@ -24,6 +24,12 @@ for (const item of catalog) {
 if (failures.length) { console.error(failures.join("\n")); process.exit(1); }
 if (catalog.length !== 3001 || videoFiles.size !== 3791) {
   console.error(`Totais inesperados: ${catalog.length} exercícios e ${videoFiles.size} vídeos únicos`);
+  process.exit(1);
+}
+const physicalVideos = readdirSync(videoDir).filter(name => name.toLowerCase().endsWith('.mp4'));
+const extras = physicalVideos.filter(name => !videoFiles.has(name));
+if (physicalVideos.length !== videoFiles.size || extras.length) {
+  console.error(`Arquivos fora da nova relação: ${extras.length}; físicos=${physicalVideos.length}; relacionados=${videoFiles.size}`);
   process.exit(1);
 }
 console.log(`Catálogo verificado: ${catalog.length} exercícios, ${videoFiles.size} vídeos únicos e nenhuma pendência.`);

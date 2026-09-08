@@ -7,6 +7,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_arq_pool, get_session
+from ..catalog import active_catalog, PLAN_CATALOG_TAG
 from ..mappers import session_shape
 from ..models import Exercise, Measurement, WorkoutLog, WorkoutPlan, WorkoutSession
 from ..numeric import round1
@@ -37,7 +38,7 @@ def _student_id_for(user: SessionUser, request: Request) -> str:
 async def _resolve_plan_day(db: AsyncSession, student_id: str, weekday: int) -> dict | None:
     plan = (
         await db.execute(
-            select(WorkoutPlan).where(WorkoutPlan.student_id == uuid.UUID(student_id), WorkoutPlan.active.is_(True)).order_by(WorkoutPlan.version.desc())
+            select(WorkoutPlan).where(WorkoutPlan.student_id == uuid.UUID(student_id), WorkoutPlan.active.is_(True), WorkoutPlan.source.endswith(PLAN_CATALOG_TAG)).order_by(WorkoutPlan.version.desc())
         )
     ).scalars().first()
     day = next((d for d in (plan.days if plan else []) if d.get("weekday") == weekday), None)
@@ -46,8 +47,10 @@ async def _resolve_plan_day(db: AsyncSession, student_id: str, weekday: int) -> 
 
     raw_ids = {item["exerciseId"] for item in day["exercises"]} | {rid for item in day["exercises"] for rid in item.get("reserveExerciseIds", [])}
     ids = [uuid.UUID(rid) for rid in raw_ids if _is_uuid(rid)]
-    exercises = (await db.execute(select(Exercise).where(Exercise.id.in_(ids)))).scalars().all() if ids else []
+    exercises = (await db.execute(select(Exercise).where(Exercise.id.in_(ids), active_catalog()))).scalars().all() if ids else []
     by_id = {str(e.id): e for e in exercises}
+    if set(by_id) != raw_ids:
+        return None
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=8)
     recent_rows = (
@@ -85,7 +88,7 @@ async def calendar(request: Request, db: AsyncSession = Depends(get_session), us
     await assert_student_access(db, user, student_id)
     plan = (
         await db.execute(
-            select(WorkoutPlan).where(WorkoutPlan.student_id == uuid.UUID(student_id), WorkoutPlan.active.is_(True)).order_by(WorkoutPlan.version.desc())
+            select(WorkoutPlan).where(WorkoutPlan.student_id == uuid.UUID(student_id), WorkoutPlan.active.is_(True), WorkoutPlan.source.endswith(PLAN_CATALOG_TAG)).order_by(WorkoutPlan.version.desc())
         )
     ).scalars().first()
     return {"plan": {"days": plan.days} if plan else None}
@@ -112,6 +115,10 @@ async def create_log(request: Request, db: AsyncSession = Depends(get_session), 
     body = await request.json()
     student_id = user.id if user.role == "student" else str(body.get("studentId") or "")
     await assert_student_access(db, user, student_id)
+    if not _is_uuid(body.get('exerciseId')):
+        raise HTTPException(400, 'Exercício inválido')
+    if not (await db.execute(select(Exercise.id).where(Exercise.id == uuid.UUID(body['exerciseId']), active_catalog()))).scalar_one_or_none():
+        raise HTTPException(404, 'Exercício fora do catálogo ativo')
     log = WorkoutLog(
         student_id=uuid.UUID(student_id), exercise_id=uuid.UUID(body["exerciseId"]),
         sets=min(20, max(1, int(body["sets"]))), reps=min(100, max(1, int(body["reps"]))),

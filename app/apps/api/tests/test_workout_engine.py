@@ -3,7 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from app.plan import CatalogExercise
-from app.workout_engine import allowed_by_injury, balanced_catalog, rules_plan
+from app.workout_engine import allowed_by_injury, balanced_catalog, recommendation_score, rules_plan
 
 
 def ex(id_, name, muscle, equipment, target_key, **extra) -> CatalogExercise:
@@ -80,14 +80,28 @@ def test_swaps_exercise_done_last_week_but_keeps_it_as_known_reserve():
     assert "p1" in [rid for item in day.exercises for rid in item.reserveExerciseIds]
 
 
+def test_recommendation_ranks_user_priority_quality_and_goal_measurement():
+    profile=base_profile(goal='mais_forte',level='intermediario',priority_muscles=['peitoral'])
+    preferred=ex('best','Supino','peitoral','halter','peitoral_press_horizontal',target_muscles=['peitoral'],
+                 source_scores={'gpt':5,'popularity':5,'experience':4},measurement={'weight':True})
+    generic=ex('generic','Remada','costas','halter','costas_remada_horizontal',target_muscles=['costas'],
+               source_scores={'gpt':1,'popularity':1,'experience':4},measurement={'weight':False})
+    assert recommendation_score(preferred,profile,['peitoral'],'peitoral',{},set()) > recommendation_score(generic,profile,['peitoral'],'peitoral',{},set())
+
+
 def _load_real_catalog() -> list[CatalogExercise]:
     catalog_path = Path(__file__).resolve().parents[3] / "catalog" / "exercises.pt-BR.json"
     raw = json.loads(catalog_path.read_text(encoding="utf-8"))
     return [
         CatalogExercise(
-            id=f"id{i}", name=item["name"], muscle_primary=item["musclePrimary"], equipment=item["equipment"],
+            id=f"id{i}", name=item["name"], name_raw=item.get('nameRaw',''), muscle_primary=item["musclePrimary"], equipment=item["equipment"],
             target_key=item["targetKey"], is_warmup=item.get("isWarmup", False), is_stretch=item.get("isStretch", False),
             complexity=item.get("complexity"), joints=item.get("joints", []),
+            required_equipment=item.get('classification', {}).get('knowledge', {}).get('equipment', {}).get('required', []),
+            target_muscles=item.get('classification', {}).get('knowledge', {}).get('targetMuscles', []),
+            exercise_type=item.get('classification', {}).get('knowledge', {}).get('exerciseType', 'Strength'),
+            source_scores=item.get('classification', {}).get('knowledge', {}).get('sourceScores', {}),
+            measurement=item.get('classification', {}).get('knowledge', {}).get('measurement', {}),
         )
         for i, item in enumerate(raw) if not item.get("needsReview") and item.get("targetKey")
     ]

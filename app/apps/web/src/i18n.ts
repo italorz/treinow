@@ -1,4 +1,8 @@
 const pt: Record<string, string> = {
+  suspensao: "Suspensão", barra_fixa: "Barra fixa", rolo: "Rolo de liberação", landmine: "Landmine",
+  carga_adicional: "Carga adicional",
+  bastao: "Bastão", corda: "Corda", treno: "Trenó", roda_abdominal: "Roda abdominal",
+  plataforma_vibratoria: "Plataforma vibratória", cinta_cabeca: "Cinta de cabeça",
   peso_corporal: "Peso do corpo", halter: "Halter", anilha: "Anilha", barra: "Barra",
   cabo: "Cabo", maquina: "Máquina", smith: "Smith", kettlebell: "Kettlebell",
   elastico: "Elástico", banco: "Banco", bola: "Bola", outro: "Outro",

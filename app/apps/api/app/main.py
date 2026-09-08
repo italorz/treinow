@@ -1,6 +1,8 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -10,7 +12,9 @@ from slowapi.middleware import SlowAPIMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import config
-from .db import close_infra, ensure_bucket, get_arq_pool
+from .db import close_infra, ensure_bucket, get_arq_pool, get_session
+from .catalog import active_catalog, CATALOG_VERSION
+from .models import Exercise
 from .rate_limit import limiter
 from .routers import auth, exercises, jobs, meta, trainer, workouts
 from .workout_engine import PlanGenerationError
@@ -70,8 +74,9 @@ async def unhandled_exception_handler(_request: Request, _exc: Exception):
 
 
 @app.get("/health")
-async def health():
-    return {"ok": True}
+async def health(db: AsyncSession = Depends(get_session)):
+    active, retired = (await db.execute(select(func.count().filter(active_catalog()), func.count().filter(Exercise.is_active.is_(False))).select_from(Exercise))).one()
+    return {"ok": True, "catalog": {"version": CATALOG_VERSION, "activeExercises": active, "retiredExercises": retired}}
 
 
 app.include_router(auth.router)

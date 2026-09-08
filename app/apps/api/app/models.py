@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, func, false
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -65,6 +65,7 @@ class Exercise(Base):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     slug: Mapped[str] = mapped_column(String(160), unique=True, index=True)
+    is_active: Mapped[bool] = mapped_column(default=False, server_default=false(), index=True)
     locale: Mapped[str] = mapped_column(String(8), default="pt-BR")
     name: Mapped[str] = mapped_column(String(160))
     name_raw: Mapped[str] = mapped_column(String(160))

@@ -9,6 +9,7 @@
     "test:api": "cd apps/api && uv run pytest",
     "catalog": "node scripts/build-catalog.mjs",
     "catalog:verify": "node scripts/verify-catalog.mjs",
+    "catalog:test": "node --test scripts/catalog-relations.test.mjs",
     "setup": "node scripts/create-dev-env.mjs && npm run catalog",
     "dev:api": "cd apps/api && uv run uvicorn app.main:app --reload",
     "dev:worker": "cd apps/api && uv run arq app.worker.WorkerSettings",

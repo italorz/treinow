@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import config
+from .catalog import active_catalog, knowledge
 from .models import AnalyticsSnapshot, Exercise, Profile, WorkoutLog
 from .numeric import js_round
 from .plan import CatalogExercise, PlanDay, PlanItem, WorkoutPlan, normalized_name, validate_plan
@@ -40,7 +41,7 @@ async def generate_plan(db: AsyncSession, student_id: str) -> GeneratedPlan:
         raise PlanGenerationError("Geração bloqueada: lesão aguda ou grave sem liberação")
 
     regions = [injury["region"] for injury in injuries]
-    query = select(Exercise).where(Exercise.needs_review.is_(False))
+    query = select(Exercise).where(active_catalog(), Exercise.needs_review.is_(False))
     if regions:
         query = query.where(~Exercise.contraindications.overlap(regions))
     rows = (await db.execute(query)).scalars().all()
@@ -72,10 +73,14 @@ async def generate_plan(db: AsyncSession, student_id: str) -> GeneratedPlan:
 
 
 def _to_catalog_exercise(row: Exercise) -> CatalogExercise:
+    info = knowledge(row)
     return CatalogExercise(
-        id=str(row.id), name=row.name, muscle_primary=row.muscle_primary, equipment=row.equipment,
+        id=str(row.id), name=row.name, name_raw=row.name_raw, muscle_primary=row.muscle_primary, equipment=row.equipment,
         target_key=row.target_key, is_warmup=row.is_warmup, is_stretch=row.is_stretch,
         complexity=row.complexity, joints=row.joints or [],
+        required_equipment=info.get('equipment', {}).get('required', []),
+        target_muscles=info.get('targetMuscles', []), exercise_type=info.get('exerciseType', 'Strength'),
+        source_scores=info.get('sourceScores', {}), measurement=info.get('measurement', {}),
     )
 
 
@@ -106,21 +111,22 @@ SPINE_PATTERN = re.compile(r"terra|deadlift|good ?morning|curvad|superman", re.I
 
 def allowed_by_injury(exercise: CatalogExercise, regions: set[str]) -> bool:
     complexity = exercise.complexity
+    name = f'{exercise.name} {exercise.name_raw}'
     if (regions & {"joelho", "tornozelo", "quadril"}) and exercise.muscle_primary in LEG_MUSCLES:
-        if HEAVY_LEG_PATTERN.search(exercise.name):
+        if HEAVY_LEG_PATTERN.search(name):
             return False
         if exercise.equipment in ("maquina", "smith", "barra") and exercise.muscle_primary != "panturrilha":
             return False
         if complexity == "avancado":
             return False
     if "ombro" in regions and exercise.muscle_primary == "ombro":
-        if exercise.equipment == "barra" and OVERHEAD_PATTERN.search(exercise.name):
+        if exercise.equipment == "barra" and OVERHEAD_PATTERN.search(name):
             return False
         if complexity == "avancado":
             return False
     if (regions & {"cotovelo", "punho"}) and exercise.muscle_primary in ARM_MUSCLES and exercise.equipment == "barra":
         return False
-    if "coluna_lombar" in regions and SPINE_PATTERN.search(exercise.name):
+    if "coluna_lombar" in regions and SPINE_PATTERN.search(name):
         return False
     return True
 
@@ -203,17 +209,22 @@ def rules_plan(profile: Profile, catalog: list[CatalogExercise], recent_exercise
 
     used: set[str] = set()
     used_names: set[str] = set()
+    used_targets: dict[str, int] = {}
 
-    def mark(exercise: CatalogExercise) -> None:
+    def mark(exercise: CatalogExercise, track_target: bool = False) -> None:
         used.add(exercise.id)
         used_names.add(normalized_name(exercise.name))
+        if track_target:
+            used_targets[exercise.target_key] = used_targets.get(exercise.target_key, 0) + 1
 
     def unused(exercise: CatalogExercise) -> bool:
         return exercise.id not in used and normalized_name(exercise.name) not in used_names
 
     def is_main_candidate(exercise: CatalogExercise, allow_recent: bool = False) -> bool:
         return (
-            not exercise.is_warmup and not exercise.is_stretch
+            not exercise.is_warmup and not exercise.is_stretch and exercise.exercise_type == 'Strength'
+            and not exercise.target_key.startswith('individual_')
+            and set(exercise.required_equipment).issubset(available)
             and (allow_recent or exercise.id not in recent_exercise_ids)
             and exercise.equipment in available and safe(exercise) and unused(exercise)
         )
@@ -241,15 +252,16 @@ def rules_plan(profile: Profile, catalog: list[CatalogExercise], recent_exercise
         picked: list[tuple[CatalogExercise, list[CatalogExercise]]] = []
 
         def pick_for(muscle: str | None, allow_recent: bool = False) -> bool:
-            for candidate in catalog:
-                if muscle and candidate.muscle_primary != muscle:
+            candidates = sorted(catalog, key=lambda e: recommendation_score(e, profile, priorities, muscle, used_targets, recent_exercise_ids), reverse=True)
+            for candidate in candidates:
+                if muscle and candidate.muscle_primary != muscle and muscle not in candidate.target_muscles:
                     continue
                 if not is_main_candidate(candidate, allow_recent):
                     continue
                 reserves = find_reserves(candidate, catalog, used, used_names, safe, available, recent_exercise_ids)
                 if not reserves:
                     continue
-                mark(candidate)
+                mark(candidate, track_target=True)
                 for reserve in reserves:
                     mark(reserve)
                 picked.append((candidate, reserves))
@@ -348,6 +360,31 @@ def rules_plan(profile: Profile, catalog: list[CatalogExercise], recent_exercise
     return validate_plan(plan, catalog, active_days, list(available))
 
 
+def recommendation_score(exercise: CatalogExercise, profile: Profile, priorities: list[str], muscle: str | None,
+                         used_targets: dict[str, int], recent_ids: set[str]) -> tuple:
+    """Deterministic ranking from source quality plus the user's explicit choices."""
+    source = exercise.source_scores or {}
+    quality = float(source.get('gpt') or 0) * 2 + float(source.get('popularity') or 0)
+    level_target = {'iniciante':2, 'intermediario':4, 'avancado':5}.get(profile.level, 3)
+    experience = float(source.get('experience') or level_target)
+    level_fit = -abs(experience - level_target)
+    target_groups = set(exercise.target_muscles) | {exercise.muscle_primary}
+    priority_fit = sum((len(priorities)-i)*3 for i, value in enumerate(priorities) if value in target_groups)
+    exact_focus = 8 if muscle and muscle in target_groups else 0
+    goal_fit = 0
+    if profile.goal == 'mais_forte':
+        goal_fit += 4 if exercise.measurement.get('weight') else 0
+        goal_fit += 2 if any(word in exercise.target_key for word in ('press','remada','puxada','agachamento','hinge')) else 0
+    elif profile.goal in ('mais_bonito','mais_leve'):
+        goal_fit += 3 if exercise.measurement.get('repetitions') else 0
+    elif profile.goal == 'menos_estressado':
+        goal_fit += 3 if exercise.equipment in ('peso_corporal','elastico','maquina') else 0
+        goal_fit += 2 if experience <= 2 else 0
+    variety = -used_targets.get(exercise.target_key, 0) * 5
+    recent = -20 if exercise.id in recent_ids else 0
+    return (exact_focus + priority_fit + goal_fit + variety + recent + level_fit + quality, quality)
+
+
 def find_reserves(
     exercise: CatalogExercise, catalog: list[CatalogExercise], used: set[str], used_names: set[str],
     safe, available: set[str], recent_exercise_ids: set[str] | None = None,
@@ -357,6 +394,7 @@ def find_reserves(
         reserve for reserve in catalog
         if reserve.id not in used and normalized_name(reserve.name) not in used_names
         and not reserve.is_warmup and not reserve.is_stretch and safe(reserve)
+        and reserve.exercise_type == 'Strength' and not reserve.target_key.startswith('individual_')
         and reserve.target_key == exercise.target_key and reserve.equipment != exercise.equipment
         and (exercise.equipment not in FIXED_EQUIPMENT or reserve.equipment in FREE_EQUIPMENT)
     ]
@@ -446,9 +484,11 @@ async def gemini_plan(profile: Profile, catalog: list[CatalogExercise], progress
     compact_catalog = [
         {
             "id": exercise.id, "nome": exercise.name, "musculo": exercise.muscle_primary, "alvo_exato": exercise.target_key,
-            "equipamento": exercise.equipment, "disponivel": exercise.equipment in available or exercise.equipment == "peso_corporal",
+            "equipamento": exercise.equipment, "disponivel": (exercise.equipment in available or exercise.equipment == "peso_corporal") and set(exercise.required_equipment).issubset(set(available) | {'peso_corporal'}),
             "feito_ultima_semana": exercise.id in recent_exercise_ids, "aquecimento": exercise.is_warmup,
             "alongamento": exercise.is_stretch, "articulacoes": exercise.joints,
+            "musculos_alvo": exercise.target_muscles, "tipo": exercise.exercise_type,
+            "equipamentos_necessarios": exercise.required_equipment,
         }
         for exercise in catalog
     ]

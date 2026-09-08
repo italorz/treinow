@@ -1,0 +1,20 @@
+{
+  "version": "appdb-catalog-v2",
+  "exercises": 3001,
+  "videoAssociations": 3792,
+  "uniqueVideos": 3791,
+  "muscleRelations": 9001,
+  "sourceHashes": {
+    "AppDb1": "3b695ee866c8d61f0d5c837c81616df6cce5c3fe22fd766ebad769453780e93b",
+    "exercicios_por_categoria.csv": "6b3a597fcbda99d8051db9267ae354ac06ac4d3c8e3633ae75375529642295f2",
+    "videos_identificados.csv": "c46afef42c5612dee363e9f0062ac0c163ad268aaf5c0b1f72b9d56300c678b1",
+    "videos_sem_relacao.csv": "76c731ad1bdf6bb414dd3b8b84bb3d361e62efd8b681986f48c01ea188ad3e86"
+  },
+  "unlinkedVideos": 55,
+  "automaticSubstitution": 1723,
+  "removedUnlinkedVideoFiles": 55,
+  "translatedNames": 3001,
+  "translationHash": "9414f87cdd57b451a9f83e90cfd0e63edbf2f02786f8acb9f4c7acf8ff486de1",
+  "translationOverridesHash": "52e68da59375b549073db4b71ded1af1b28cc2cf9f04baacb35dcf0bbf5dc3f2",
+  "note": "Portuguese display names; original names kept only as provenance/search. Muscle participation preserved. Derived rules are not clinical validation. Unlinked source rows are documented, but their video files are removed."
+}

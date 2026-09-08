@@ -77,6 +77,7 @@ function ExerciseCard({ exercise, onOpen }: any) {
   </button>;
 }
 function ExerciseModal({ exercise, onClose }: any) {
+  const [variant, setVariant] = useState("");
   const detail = useQuery({ queryKey: ["exercise", exercise.id], queryFn: () => api<any>(`/exercises/${exercise.id}`) });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -87,13 +88,19 @@ function ExerciseModal({ exercise, onClose }: any) {
   return <div className="modal-backdrop" onClick={onClose}>
     <div className="modal" role="dialog" aria-modal="true" onClick={e => e.stopPropagation()}>
       <button type="button" className="modal-close" onClick={onClose} aria-label="Fechar"><X size={20}/></button>
-      <ExerciseVideo id={exercise.id} eager controls className="modal-video"/>
+      <ExerciseVideo id={exercise.id} variant={variant} eager controls className="modal-video"/>
       <div className="modal-body">
         <span className="tag">{domainLabel(exercise.musclePrimary)}</span>
         <h2>{exercise.name}</h2>
+        {ex?.videoVariants?.length > 1 && <div className="segmented compact" aria-label="Demonstração do exercício">
+          <button className={!variant ? "selected" : ""} onClick={() => setVariant("")}>Automático</button>
+          {ex.videoVariants.map((v: string) => <button key={v} className={variant === v ? "selected" : ""} onClick={() => setVariant(v)}>{v === "feminino" ? "Feminino" : "Masculino"}</button>)}
+        </div>}
         <p className="muted cap">{domainLabel(exercise.equipment)} · {domainLabel(exercise.complexity)}</p>
         {detail.isLoading && <div className="skeleton" style={{ height: 80 }}/>}
         {ex && <dl className="meta-grid">
+          {ex.knowledge?.targetMuscles?.length > 0 && <div><dt>Músculos-alvo</dt><dd>{ex.knowledge.targetMuscles.map(domainLabel).join(", ")}</dd></div>}
+          {ex.knowledge?.equipment?.required?.length > 0 && <div><dt>Equipamentos necessários</dt><dd>{ex.knowledge.equipment.required.map(domainLabel).join(", ")}</dd></div>}
           {ex.movementPattern && <div><dt>Padrão de movimento</dt><dd>{domainLabel(ex.movementPattern)}</dd></div>}
           {ex.secondaryMuscles?.length > 0 && <div><dt>Músculos auxiliares</dt><dd>{ex.secondaryMuscles.map(domainLabel).join(", ")}</dd></div>}
           {ex.joints?.length > 0 && <div><dt>Articulações</dt><dd>{ex.joints.map(domainLabel).join(", ")}</dd></div>}
