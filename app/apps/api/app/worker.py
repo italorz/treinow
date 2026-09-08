@@ -20,6 +20,7 @@ from .workout_engine import PlanGenerationError, generate_plan
 
 CATALOG_PATH = Path("/app/catalog/exercises.pt-BR.json")
 VIDEOS_DIR = Path("/app/videos")
+CATALOG_IMPORT_REVISION = 'catalog-v2-cleanup-1'
 
 
 async def import_catalog(ctx) -> dict:
@@ -242,7 +243,7 @@ async def _startup(ctx) -> None:
     print("Treinow workers ativos")
     if CATALOG_PATH.exists():
         catalog_hash = hashlib.sha256(CATALOG_PATH.read_bytes()).hexdigest()[:16]
-        await ctx["redis"].enqueue_job("import_catalog", _job_id=f"catalog-{catalog_hash}")
+        await ctx["redis"].enqueue_job("import_catalog", _job_id=f"{CATALOG_IMPORT_REVISION}-{catalog_hash}")
 
 
 class WorkerSettings:
