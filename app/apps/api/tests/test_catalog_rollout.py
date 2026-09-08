@@ -43,6 +43,7 @@ class Storage:
         return {'Contents':[{'Key':key} for key in self.objects], 'IsTruncated':False}
     async def delete_objects(self, Bucket, Delete):
         for item in Delete['Objects']: self.objects.pop(item['Key'],None)
+        return {}
 
 
 @pytest.mark.asyncio

@@ -76,30 +76,39 @@ async def import_catalog(ctx) -> dict:
     for student_id in affected_students:
         await ctx['redis'].enqueue_job('refresh_analytics', str(student_id))
     stale_videos = await _purge_stale_videos(unique_videos)
-    return {'imported':imported,'active':active,'retired':retired,**removed,'verifiedVideos':len(unique_videos),'deletedVideoObjects':stale_videos,'plansQueued':len(pending),'catalogVersion':CATALOG_VERSION}
+    result = {'imported':imported,'active':active,'retired':retired,'verifiedVideos':len(unique_videos),'deletedVideoObjects':stale_videos,**removed,'plansQueued':len(pending),'catalogVersion':CATALOG_VERSION}
+    print('catalog_import ' + ' '.join(f'{key}={value}' for key, value in result.items()))
+    return result
 
 
 async def _purge_stale_videos(expected: dict) -> int:
     """Remove obsolete video objects only; unrelated non-video bucket data is untouched."""
     expected_keys = set(expected)
-    stale: list[dict] = []
-    token = None
     async with s3_client() as s3:
-        while True:
-            args = {'Bucket':config.MINIO_BUCKET}
-            if token:
-                args['ContinuationToken'] = token
-            page = await s3.list_objects_v2(**args)
-            for obj in page.get('Contents', []):
-                key = obj['Key']
-                if key.lower().endswith(('.mp4','.webm','.mov','.avi')) and key not in expected_keys:
-                    stale.append({'Key':key})
-            if not page.get('IsTruncated'):
-                break
-            token = page['NextContinuationToken']
+        current = await _video_object_keys(s3)
+        stale = [{'Key':key} for key in current - expected_keys]
         for offset in range(0, len(stale), 1000):
-            await s3.delete_objects(Bucket=config.MINIO_BUCKET, Delete={'Objects':stale[offset:offset+1000], 'Quiet':True})
+            response = await s3.delete_objects(Bucket=config.MINIO_BUCKET, Delete={'Objects':stale[offset:offset+1000], 'Quiet':True})
+            if response.get('Errors'):
+                raise RuntimeError('Storage refused obsolete video deletion')
+        remaining = await _video_object_keys(s3)
+        if remaining != expected_keys:
+            raise RuntimeError(f'Video storage/catalog mismatch: expected={len(expected_keys)} actual={len(remaining)}')
     return len(stale)
+
+
+async def _video_object_keys(s3) -> set[str]:
+    keys: set[str] = set()
+    token = None
+    while True:
+        args = {'Bucket':config.MINIO_BUCKET}
+        if token:
+            args['ContinuationToken'] = token
+        page = await s3.list_objects_v2(**args)
+        keys.update(obj['Key'] for obj in page.get('Contents', []) if obj['Key'].lower().endswith(('.mp4','.webm','.mov','.avi')))
+        if not page.get('IsTruncated'):
+            return keys
+        token = page['NextContinuationToken']
 
 
 def _references(value, ids: set[str]) -> bool:
