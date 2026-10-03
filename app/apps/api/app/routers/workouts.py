@@ -15,7 +15,7 @@ from ..security import SessionUser, assert_student_access, local_date_key, requi
 
 router = APIRouter(prefix="/v1", tags=["workouts"], dependencies=[Depends(verify_csrf)])
 
-PHASE_ORDER = {"alongamento": 0, "aquecimento": 1, "principal": 2}
+PHASE_ORDER = {"aquecimento": 0, "alongamento": 1, "principal": 2}
 
 
 def _js_weekday() -> int:

@@ -22,13 +22,13 @@ def test_rejects_front_raise_as_lateral_raise_reserve():
     pairs = [("m2", "r2"), ("m3", "r3"), ("m4", "r4")]
     exercises = [
         PlanItem(exerciseId="warm", phase="aquecimento", sets=2, reps="15", restSeconds=20, reserveExerciseIds=[]),
+        PlanItem(exerciseId="stretch", phase="alongamento", sets=2, reps="30s", restSeconds=20, reserveExerciseIds=[]),
         PlanItem(exerciseId="lateral", phase="principal", sets=3, reps="12", restSeconds=60, reserveExerciseIds=["frontal"]),
         *[PlanItem(exerciseId=main, phase="principal", sets=3, reps="12", restSeconds=60, reserveExerciseIds=[reserve]) for main, reserve in pairs],
-        PlanItem(exerciseId="stretch", phase="alongamento", sets=2, reps="30s", restSeconds=20, reserveExerciseIds=[]),
     ]
     plan = WorkoutPlan(days=[
         PlanDay(weekday=weekday, title="Ombros" if weekday == 1 else "Descanso", focusMuscles=["ombro"] if weekday == 1 else [], exercises=exercises if weekday == 1 else [])
         for weekday in range(7)
     ])
     with pytest.raises(ValueError, match="correlação anatômica"):
-        validate_plan(plan, catalog, [1], ["maquina", "cabo", "halter"])
+        validate_plan(plan, catalog, [1], ["maquina", "cabo", "halter", "barra", "elastico"])

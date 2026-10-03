@@ -33,11 +33,12 @@ function uniqueMuscles(view: "front" | "back") {
 
 export function ExercisesPage() {
   const [view, setView] = useState<"front" | "back">("front"); const [muscle, setMuscle] = useState(""); const [search, setSearch] = useState("");
+  const [exerciseType, setExerciseType] = useState("");
   const [selected, setSelected] = useState<any>(null);
   const counts = useQuery({ queryKey: ["muscle-summary"], queryFn: () => api<any>("/exercises/muscle-summary"), staleTime: 5 * 60_000 });
   const query = useInfiniteQuery({
-    queryKey: ["exercises", muscle, search],
-    queryFn: ({ pageParam }) => api<any>(`/exercises?${new URLSearchParams({ ...(muscle ? { muscle } : {}), ...(search ? { search } : {}), ...(pageParam ? { cursor: pageParam } : {}) })}`),
+    queryKey: ["exercises", muscle, search, exerciseType],
+    queryFn: ({ pageParam }) => api<any>(`/exercises?${new URLSearchParams({ ...(muscle ? { muscle } : {}), ...(search ? { search } : {}), ...(exerciseType ? { type: exerciseType } : {}), ...(pageParam ? { cursor: pageParam } : {}) })}`),
     initialPageParam: "", getNextPageParam: last => last.nextCursor ?? undefined
   });
   const sentinel = useRef<HTMLDivElement>(null);
@@ -64,6 +65,7 @@ export function ExercisesPage() {
       <p>Toque em um grupo muscular para filtrar</p>
     </div>
     <label className="search"><Search size={19}/><input type="search" placeholder="Nome, halter, barra, cabo..." value={search} onChange={e => setSearch(e.target.value)}/></label>
+    <select className="exercise-type-filter" aria-label="Categoria do exercício" value={exerciseType} onChange={e => setExerciseType(e.target.value)}><option value="">Todas as categorias</option><option value="Strength">Força</option><option value="Stretching">Alongamento</option><option value="warmup">Aquecimento</option><option value="Aerobic">Aeróbico</option></select>
     {(muscle || search) && <div className="filter-note">{muscle || `Resultados para “${search}”`}<button onClick={() => {setMuscle(""); setSearch("");}}>Limpar</button></div>}
     <div className="library-grid">{items.map((e: any) => <ExerciseCard key={e.id} exercise={e} onOpen={() => setSelected(e)}/>)}</div>
     {query.isLoading && <div className="skeleton tall"/>}<div ref={sentinel}/>{!query.hasNextPage && items.length > 0 && <p className="end">Você viu todos os exercícios.</p>}

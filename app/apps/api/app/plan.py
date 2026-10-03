@@ -23,6 +23,9 @@ class PlanDay(BaseModel):
     title: str = Field(min_length=2, max_length=80)
     focusMuscles: list[str] = Field(max_length=4, default_factory=list)
     exercises: list[PlanItem] = Field(max_length=14, default_factory=list)
+    preparationNotes: list[str] = Field(max_length=20, default_factory=list)
+    guidedCuffWarmup: bool = False
+    guidedGeneralWarmup: bool = False
 
 
 class WorkoutPlan(BaseModel):
@@ -46,6 +49,8 @@ class CatalogExercise:
     name_raw: str = ''
     source_scores: dict = field(default_factory=dict)
     measurement: dict = field(default_factory=dict)
+    contraindications: list[str] = field(default_factory=list)
+    video_variants: list[str] = field(default_factory=list)
 
 
 def normalized_name(name: str) -> str:
@@ -61,7 +66,7 @@ def validate_plan(plan: WorkoutPlan, catalog: list[CatalogExercise], training_da
     globally_used: set[str] = set()
     globally_used_names: set[str] = set()
 
-    if len({day.weekday for day in plan.days}) != 7:
+    if len(plan.days) != 7 or len({day.weekday for day in plan.days}) != 7:
         raise ValueError("Plano deve conter os sete dias sem duplicação")
 
     for day in plan.days:
@@ -73,30 +78,41 @@ def validate_plan(plan: WorkoutPlan, catalog: list[CatalogExercise], training_da
         warmups = [item for item in day.exercises if item.phase == "aquecimento"]
         mains = [item for item in day.exercises if item.phase == "principal"]
         stretches = [item for item in day.exercises if item.phase == "alongamento"]
-        if not warmups or len(mains) < 4 or not stretches:
+        if (not warmups and not day.guidedGeneralWarmup) or len(mains) < 4 or not stretches:
             raise ValueError("Cada treino precisa de aquecimento, 4 exercícios principais e alongamento")
+
+        phases = {"aquecimento": 0, "alongamento": 1, "principal": 2}
+        if [phases[item.phase] for item in day.exercises] != sorted(phases[item.phase] for item in day.exercises):
+            raise ValueError("Aquecimento e alongamento devem preceder o treino principal")
+        daily_used: set[str] = set()
+        daily_names: set[str] = set()
 
         for item in day.exercises:
             exercise = by_id.get(item.exerciseId)
             if not exercise:
                 raise ValueError("Plano contém exercício inexistente")
-            if item.exerciseId in globally_used:
-                raise ValueError("Exercício repetido durante a semana")
             exercise_name = normalized_name(exercise.name)
-            if exercise_name in globally_used_names:
-                raise ValueError("Exercício com nome repetido durante a semana")
-            globally_used.add(item.exerciseId)
-            globally_used_names.add(exercise_name)
-            if item.phase == "aquecimento" and not exercise.is_warmup:
+            if item.exerciseId in daily_used or exercise_name in daily_names:
+                raise ValueError("Exercício repetido no mesmo treino")
+            daily_used.add(item.exerciseId)
+            daily_names.add(exercise_name)
+            if item.phase == "principal":
+                if item.exerciseId in globally_used or exercise_name in globally_used_names:
+                    raise ValueError("Exercício principal repetido durante a semana")
+                globally_used.add(item.exerciseId)
+                globally_used_names.add(exercise_name)
+            if item.phase == "aquecimento" and (not exercise.is_warmup or exercise.is_stretch):
                 raise ValueError("Item de aquecimento não é adequado para aquecer")
             if item.phase == "alongamento" and not exercise.is_stretch:
                 raise ValueError("Item final não é um alongamento")
             if item.phase != "principal" and item.reserveExerciseIds:
                 raise ValueError("Aquecimentos e alongamentos não usam reservas")
-            if item.phase == "principal" and exercise.equipment not in allowed_main_equipment:
-                raise ValueError("Exercício principal usa equipamento indisponível")
+            if exercise.equipment not in allowed_main_equipment or not set(exercise.required_equipment).issubset(allowed_main_equipment):
+                raise ValueError("Exercício usa equipamento indisponível")
             if item.phase == 'principal' and (exercise.exercise_type != 'Strength' or exercise.target_key.startswith('individual_')):
                 raise ValueError('Exercício sem relação de força validada para o plano')
+            if item.phase == "principal" and (exercise.is_warmup or exercise.is_stretch):
+                raise ValueError("Preparação não pode substituir exercício principal")
             if item.phase == 'principal' and not set(exercise.required_equipment).issubset(allowed_main_equipment):
                 raise ValueError('Exercício exige equipamento secundário indisponível')
             if item.phase == "principal" and not item.reserveExerciseIds:
@@ -118,6 +134,8 @@ def validate_plan(plan: WorkoutPlan, catalog: list[CatalogExercise], training_da
                 if reserve_id in globally_used:
                     raise ValueError("Reserva repetida durante a semana")
                 reserve_name = normalized_name(reserve.name)
+                if reserve.equipment not in allowed_main_equipment or not set(reserve.required_equipment).issubset(allowed_main_equipment):
+                    raise ValueError("Reserva usa equipamento indisponível")
                 if reserve_name in globally_used_names:
                     raise ValueError("Reserva com nome repetido durante a semana")
                 globally_used.add(reserve_id)
@@ -128,7 +146,7 @@ def validate_plan(plan: WorkoutPlan, catalog: list[CatalogExercise], training_da
                 raise ValueError("Exercício de máquina/cabo sem alternativa com peso livre")
 
         shoulder_day = any(by_id.get(item.exerciseId) and by_id[item.exerciseId].target_key.startswith("ombro_") for item in mains)
-        if shoulder_day and not any(by_id.get(item.exerciseId) and by_id[item.exerciseId].target_key.startswith("manguito_rotador_") for item in warmups):
+        if shoulder_day and not day.guidedCuffWarmup and not any(by_id.get(item.exerciseId) and by_id[item.exerciseId].target_key.startswith("manguito_rotador_") for item in warmups):
             raise ValueError("Treino de ombro sem aquecimento de manguito rotador")
 
     return plan

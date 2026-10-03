@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { ExerciseVideo } from "../video";
 import { EquipmentIcon } from "../equipment";
+import { WorkoutPreparation } from "../preparation";
 
-const phaseOrder: Record<string, number> = { alongamento: 0, aquecimento: 1, principal: 2 };
+const phaseOrder: Record<string, number> = { aquecimento: 0, alongamento: 1, principal: 2 };
 
 const labels = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
@@ -46,6 +47,7 @@ function DayModal({ weekday, onClose }: { weekday: number; onClose: () => void }
         <span className="eyebrow">{labels[weekday]?.toUpperCase()}</span>
         <h2>{day?.title ?? "Treino"}</h2>
         {day?.focusMuscles?.length > 0 && <p className="muted cap">{day.focusMuscles.join(" · ")}</p>}
+        <WorkoutPreparation notes={day?.preparationNotes}/>
         {query.isLoading && <div className="skeleton" style={{ height: 120 }}/>}
         {day?.exercises && [...day.exercises].sort((a: any,b: any) => (phaseOrder[a.phase] ?? 99)-(phaseOrder[b.phase] ?? 99)).map((e: any, i: number) => <div key={e.id} className="cal-row">
           <span className="exercise-number">{String(i + 1).padStart(2, "0")}</span>

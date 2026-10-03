@@ -22,6 +22,8 @@ def exercise_summary(exercise: Exercise) -> dict:
         "musclePrimary": exercise.muscle_primary, "equipment": exercise.equipment,
         "complexity": exercise.complexity,
         "requiresHighMindMuscleAwareness": exercise.requires_high_mind_muscle_awareness,
+        "exerciseType": knowledge(exercise).get("exerciseType"),
+        "isWarmup": exercise.is_warmup, "isStretch": exercise.is_stretch,
         "video": exercise.video,
     }
 

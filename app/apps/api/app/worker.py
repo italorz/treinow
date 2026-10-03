@@ -166,6 +166,9 @@ async def generate_workout(ctx, student_id: str) -> dict:
             generated = await generate_plan(db, student_id)
         except PlanGenerationError as error:
             raise RuntimeError(str(error)) from error
+        revision = (await db.execute(select(Profile.updated_at).where(Profile.student_id == uuid.UUID(student_id)).with_for_update())).scalar_one_or_none()
+        if generated.profile_revision is not None and revision != generated.profile_revision:
+            raise RuntimeError("A meta foi alterada durante a geração. Aguarde o treino solicitado pela meta mais recente.")
         current = (
             await db.execute(
                 select(WorkoutPlan).where(WorkoutPlan.student_id == uuid.UUID(student_id), WorkoutPlan.active.is_(True)).order_by(WorkoutPlan.version.desc())

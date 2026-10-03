@@ -4,8 +4,9 @@ import { useState } from "react";
 import { api } from "../api";
 import { EquipmentIcon } from "../equipment";
 import { ExerciseVideo } from "../video";
+import { WorkoutPreparation } from "../preparation";
 
-const phaseOrder: Record<string, number> = { alongamento: 0, aquecimento: 1, principal: 2 };
+const phaseOrder: Record<string, number> = { aquecimento: 0, alongamento: 1, principal: 2 };
 
 export function TodayPage() {
   const qc = useQueryClient();
@@ -32,6 +33,7 @@ export function TodayPage() {
     {dayQuery.isLoading && <div className="skeleton tall"/>}
     {!day && !dayQuery.isLoading && <div className="empty"><h2>Dia de recuperação</h2><p>Seu corpo evolui quando também descansa.</p></div>}
     {day && <><div className="workout-hero"><span>{active ? "TREINO EM ANDAMENTO" : session?.status === "finished" ? "TREINO FINALIZADO" : "TREINO DE HOJE"}</span><h2>{day.title}</h2><p>{day.exercises.length} exercícios · aproximadamente 45 min</p></div>
+      <WorkoutPreparation notes={day.preparationNotes}/>
       {!session && <button className="primary session-action" onClick={() => start.mutate()} disabled={start.isPending}><Play size={17} fill="currentColor"/> Iniciar treino</button>}
       <div className="exercise-list">{[...day.exercises].sort((a:any,b:any)=>(phaseOrder[a.phase]??99)-(phaseOrder[b.phase]??99)).map((exercise:any,index:number)=><TodayExercise key={exercise.id} exercise={exercise} index={index} active={active} selectedId={session?.selections?.[exercise.id]} onChoose={choose}/>)}</div>
       {active && <button className="primary session-action finish" onClick={() => finish()}><Square size={16} fill="currentColor"/> Finalizar treino</button>}

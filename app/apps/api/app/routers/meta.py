@@ -1,15 +1,18 @@
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import ValidationError
 
 from ..db import get_arq_pool, get_session
-from ..models import Profile
+from ..models import Profile, WorkoutPlan
 from ..numeric import round1
 from ..schemas.meta import MetaInput
 from ..security import SessionUser, assert_student_access, require_user, verify_csrf
+from ..preparation import validate_injuries
 
 router = APIRouter(prefix="/v1", tags=["meta"], dependencies=[Depends(verify_csrf)])
 
@@ -28,7 +31,10 @@ async def put_meta(request: Request, db: AsyncSession = Depends(get_session), us
     student_id = user.id if user.role == "student" else str(body.get("studentId") or "")
     await assert_student_access(db, user, student_id)
     raw = body if user.role == "student" else body.get("meta")
-    input = MetaInput.model_validate(raw)
+    try:
+        input = MetaInput.model_validate(raw)
+    except ValidationError as error:
+        raise HTTPException(422, "Revise os campos da meta e as informações das lesões.") from error
     bmi = round1(input.weightKg / ((input.heightCm / 100) ** 2))
 
     values = dict(
@@ -40,9 +46,16 @@ async def put_meta(request: Request, db: AsyncSession = Depends(get_session), us
     )
     stmt = pg_insert(Profile).values(**values)
     update_values = {key: value for key, value in values.items() if key != "student_id"}
+    update_values["updated_at"] = datetime.now(UTC)
     stmt = stmt.on_conflict_do_update(index_elements=["student_id"], set_=update_values)
     await db.execute(stmt)
+    await db.execute(update(WorkoutPlan).where(WorkoutPlan.student_id == uuid.UUID(student_id), WorkoutPlan.active.is_(True)).values(active=False))
     await db.commit()
+
+    try:
+        validate_injuries(values["injuries"])
+    except ValueError as error:
+        return {"bmi": bmi, "jobId": None, "generationBlocked": str(error)}
 
     pool = await get_arq_pool()
     job = await pool.enqueue_job("generate_workout", student_id, _job_id=f"workout:{student_id}:{uuid.uuid4()}")

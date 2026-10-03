@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
 
 from .common import Equipment, Goal, InjuryRegion, InjurySeverity, InjuryStatus, Level, Muscle
@@ -20,9 +22,9 @@ class MetaInput(BaseModel):
     weightKg: float = Field(ge=30, le=300)
     heightCm: int = Field(ge=120, le=230)
     age: int = Field(ge=14, le=100)
-    sex: str
+    sex: Literal["feminino", "masculino", "nao_informar"]
     priorityMuscles: list[Muscle] = Field(max_length=3)
-    intensity: str
+    intensity: Literal["leve", "moderada", "intensa"]
     injuries: list[InjuryInput] = Field(max_length=8)
 
     @field_validator("trainingDays")

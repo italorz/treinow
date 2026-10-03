@@ -5,6 +5,10 @@ import { api } from "./api";
 const blockContextMenu = (e: SyntheticEvent) => e.preventDefault();
 const videoUrls = new Map<string, { url: string; expiresAt: number }>();
 
+export function clearVideoCache() {
+  videoUrls.clear();
+}
+
 async function getVideoUrl(id: string, variant = "") {
   const key = `${id}:${variant}`;
   const cached = videoUrls.get(key);

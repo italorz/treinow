@@ -8,11 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
 
 from ..config import config
-from ..catalog import active_catalog
+from ..catalog import active_catalog, profile_catalog, planning_exercise, preferred_video_variant
 from ..db import get_session, s3_client
 from ..mappers import exercise_detail, exercise_related, exercise_summary
 from ..models import Exercise, Profile
 from ..security import SessionUser, media_signature, require_user, safe_equal, verify_csrf
+from ..preparation import injury_compatible
 
 router = APIRouter(prefix="/v1", tags=["exercises"], dependencies=[Depends(verify_csrf)])
 
@@ -26,7 +27,15 @@ def _normalize(value: str) -> str:
 @router.get("/exercises")
 async def list_exercises(request: Request, db: AsyncSession = Depends(get_session), _user: SessionUser = Depends(require_user)):
     q = request.query_params
-    query = select(Exercise).where(active_catalog())
+    profile = await _user_profile(db, _user)
+    query = select(Exercise).where(profile_catalog(profile.sex if profile else None))
+    if exercise_type := q.get("type"):
+        if exercise_type == "warmup":
+            query = query.where(Exercise.is_warmup.is_(True), Exercise.is_stretch.is_(False))
+        elif exercise_type in ("Strength", "Stretching", "Aerobic"):
+            query = query.where(Exercise.classification['knowledge']['exerciseType'].astext == exercise_type)
+        else:
+            raise HTTPException(400, "Categoria de exercício inválida")
     if muscle := q.get("muscle"):
         query = query.where((Exercise.muscle_primary == muscle) | Exercise.classification['knowledge']['targetMuscles'].contains([muscle]))
     if equipment := q.get("equipment"):
@@ -50,7 +59,8 @@ async def list_exercises(request: Request, db: AsyncSession = Depends(get_sessio
 
 @router.get("/exercises/muscle-summary")
 async def muscle_summary(db: AsyncSession = Depends(get_session), _user: SessionUser = Depends(require_user)):
-    targets = select(func.jsonb_array_elements_text(Exercise.classification['knowledge']['targetMuscles']).label('muscle')).where(active_catalog()).subquery()
+    profile = await _user_profile(db, _user)
+    targets = select(func.jsonb_array_elements_text(Exercise.classification['knowledge']['targetMuscles']).label('muscle')).where(profile_catalog(profile.sex if profile else None)).subquery()
     rows = (await db.execute(select(targets.c.muscle, func.count()).group_by(targets.c.muscle))).all()
     return {"counts": {muscle: count for muscle, count in rows}}
 
@@ -58,11 +68,17 @@ async def muscle_summary(db: AsyncSession = Depends(get_session), _user: Session
 @router.get("/exercises/{exercise_id}")
 async def get_exercise(exercise_id: str, db: AsyncSession = Depends(get_session), _user: SessionUser = Depends(require_user)):
     exercise = await _require_exercise(db, exercise_id)
-    related_query = select(Exercise).where(active_catalog(), Exercise.muscle_primary == exercise.muscle_primary, Exercise.id != exercise.id, Exercise.needs_review.is_(False))
-    warmups = (await db.execute(related_query.where(Exercise.is_warmup.is_(True)).limit(8))).scalars().all()
-    stretches = (await db.execute(related_query.where(Exercise.is_stretch.is_(True)).limit(8))).scalars().all()
-    if exercise.muscle_primary == "ombro":
-        warmups = sorted(warmups, key=lambda e: e.target_key.startswith("manguito_rotador_"), reverse=True)
+    profile = await _user_profile(db, _user)
+    related_query = select(Exercise).where(profile_catalog(profile.sex if profile else None), Exercise.id != exercise.id, Exercise.needs_review.is_(False), (Exercise.is_warmup.is_(True) | Exercise.is_stretch.is_(True)))
+    related = (await db.execute(related_query)).scalars().all()
+    available = set(profile.equipment or []) | {"peso_corporal"} if profile else None
+    related = [e for e in related if (not profile or injury_compatible(planning_exercise(e), profile.injuries or []))
+               and (available is None or set(planning_exercise(e).required_equipment).issubset(available))]
+    targets = set(planning_exercise(exercise).target_muscles) | {exercise.muscle_primary}
+    related = [e for e in related if targets & set(planning_exercise(e).target_muscles)
+               or exercise.muscle_primary == "ombro" and e.target_key.startswith("manguito_rotador_")]
+    warmups = sorted([e for e in related if e.is_warmup and not e.is_stretch], key=lambda e: (not e.target_key.startswith("manguito_rotador_"), e.complexity != "iniciante", e.name))
+    stretches = sorted([e for e in related if e.is_stretch], key=lambda e: (e.complexity != "iniciante", e.name))
     return {
         "exercise": exercise_detail(exercise),
         "warmups": [exercise_related(e) for e in warmups[:3]],
@@ -73,15 +89,21 @@ async def get_exercise(exercise_id: str, db: AsyncSession = Depends(get_session)
 @router.get("/exercises/{exercise_id}/video-url")
 async def get_video_url(exercise_id: str, db: AsyncSession = Depends(get_session), _user: SessionUser = Depends(require_user), variant: str | None = None):
     exercise = await _require_exercise(db, exercise_id)
-    profile = (await db.execute(select(Profile).where(Profile.student_id == uuid.UUID(_user.id)))).scalar_one_or_none()
+    profile = await _user_profile(db, _user)
     variants = exercise.video.get("variants", {})
-    preferred = "feminino" if profile and profile.sex in ("feminino", "female", "f") else "masculino"
+    preferred = preferred_video_variant(profile.sex if profile else None)
     if variant is not None and variant not in variants:
         raise HTTPException(400, 'Variante de vídeo indisponível')
-    variant = variant or (preferred if preferred in variants else next(iter(variants), "padrao"))
+    if variant is None and preferred and preferred not in variants:
+        raise HTTPException(404, "Não há demonstração disponível para o sexo informado no perfil.")
+    variant = variant or preferred or next(iter(variants), "padrao")
     expires = int(time.time()) + 300
     signature = media_signature(f"{exercise_id}:{variant}", expires)
     return {"url": f"{config.PUBLIC_URL}/v1/media/{exercise_id}?variant={variant}&expires={expires}&signature={signature}"}
+
+
+async def _user_profile(db: AsyncSession, user: SessionUser) -> Profile | None:
+    return (await db.execute(select(Profile).where(Profile.student_id == uuid.UUID(user.id)))).scalar_one_or_none()
 
 
 @router.get("/media/{exercise_id}")

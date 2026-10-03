@@ -26,6 +26,18 @@
 .modal-video{width:100%;height:46vh;object-fit:contain;background:#0b1020;border-radius:14px}
 .modal-body{padding:14px 4px 4px}.modal-body h2{font-size:20px;margin:8px 0 2px}
 .meta-grid{display:grid;gap:0;margin:16px 0 4px}.meta-grid div{display:flex;justify-content:space-between;gap:14px;border-bottom:1px solid var(--line);padding:9px 0}.meta-grid dt{color:var(--muted);font-size:12px}.meta-grid dd{margin:0;font-size:12px;font-weight:600;text-align:right;text-transform:capitalize}
+.injury-details{min-width:0;margin:16px 0 0;padding:12px 0 0;border:0;border-top:1px solid var(--line)}
+.injury-details legend{padding:0 8px 0 0;font-size:12px;font-weight:700}
+.injury-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.injury-fields label,.form-section>label{display:grid;gap:6px;font-size:12px;font-weight:600}
+.injury-fields select{min-width:0;padding:10px;font-size:12px}
+.injury-clearance{display:flex;align-items:flex-start;gap:8px;margin-top:12px;font-size:12px;line-height:1.5}
+.injury-clearance input{flex:0 0 16px;width:16px;height:16px;margin:2px 0 0;accent-color:var(--green)}
+.workout-preparation{margin:16px 0;padding-left:12px;border-left:3px solid var(--green)}
+.workout-preparation h3{margin-bottom:8px;font-size:14px;letter-spacing:0}
+.workout-preparation p{margin-bottom:8px;font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.exercise-type-filter{margin-bottom:16px;font-size:13px}
+@media(max-width:380px){.injury-fields{grid-template-columns:1fr}}
 .reco{margin-top:18px}.reco h4{font-size:13px;margin:0 0 6px}
 .reco-row{display:flex;align-items:center;gap:12px;padding:8px 0;border-top:1px solid var(--line)}
 .reco-row>div{display:flex;flex-direction:column;gap:2px;min-width:0}.reco-row strong{font-size:13px;font-weight:700}.reco-row span{font-size:11px;color:var(--muted)}

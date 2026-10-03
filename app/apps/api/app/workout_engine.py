@@ -3,6 +3,7 @@ import math
 import re
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 
 from google import genai
 from google.genai import types as genai_types
@@ -10,11 +11,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import config
-from .catalog import active_catalog, knowledge
+from .catalog import profile_catalog, planning_exercise
 from .models import AnalyticsSnapshot, Exercise, Profile, WorkoutLog
 from .numeric import js_round
 from .plan import CatalogExercise, PlanDay, PlanItem, WorkoutPlan, normalized_name, validate_plan
 from .privacy import safe_prompt_profile
+from .preparation import injury_compatible, prepare_plan, validate_injuries
 
 FREE_EQUIPMENT = {"halter", "anilha", "barra", "peso_corporal", "elastico"}
 FIXED_EQUIPMENT = {"maquina", "cabo", "smith"}
@@ -25,6 +27,7 @@ class GeneratedPlan:
     plan: WorkoutPlan
     source: str
     provider_failures: list[str] | None = None
+    profile_revision: datetime | None = None
 
 
 class PlanGenerationError(Exception):
@@ -37,15 +40,15 @@ async def generate_plan(db: AsyncSession, student_id: str) -> GeneratedPlan:
         raise PlanGenerationError("Meta não configurada")
 
     injuries = profile.injuries or []
-    if any(injury.get("status") == "dor_aguda" or (injury.get("severity") == "grave" and not injury.get("medicallyCleared")) for injury in injuries):
-        raise PlanGenerationError("Geração bloqueada: lesão aguda ou grave sem liberação")
-
-    regions = [injury["region"] for injury in injuries]
-    query = select(Exercise).where(active_catalog(), Exercise.needs_review.is_(False))
-    if regions:
-        query = query.where(~Exercise.contraindications.overlap(regions))
+    try:
+        validate_injuries(injuries)
+    except ValueError as error:
+        raise PlanGenerationError(str(error)) from error
+    query = select(Exercise).where(profile_catalog(profile.sex), Exercise.needs_review.is_(False))
     rows = (await db.execute(query)).scalars().all()
-    all_exercises = [_to_catalog_exercise(row) for row in rows]
+    all_exercises = [planning_exercise(row) for row in rows]
+    regions = {injury["region"] for injury in injuries}
+    all_exercises = [e for e in all_exercises if injury_compatible(e, injuries) and allowed_by_injury(e, regions)]
     if not all_exercises:
         raise PlanGenerationError("Catálogo compatível vazio")
 
@@ -64,24 +67,13 @@ async def generate_plan(db: AsyncSession, student_id: str) -> GeneratedPlan:
             await db.execute(select(AnalyticsSnapshot).where(AnalyticsSnapshot.student_id == uuid.UUID(student_id)))
         ).scalar_one_or_none()
         progress = _snapshot_dict(snapshot) if snapshot else {}
-        attempt = await gemini_plan(profile, balanced_catalog(all_exercises), progress, recent_exercise_ids)
+        attempt = await gemini_plan(profile, balanced_catalog(all_exercises), progress, recent_exercise_ids, all_exercises)
         if attempt is not None and not isinstance(attempt, list):
+            attempt.profile_revision = profile.updated_at
             return attempt
         failures = attempt if isinstance(attempt, list) else []
-        return GeneratedPlan(plan=rules_plan(profile, all_exercises, recent_exercise_ids), source="rules-engine", provider_failures=failures)
-    return GeneratedPlan(plan=rules_plan(profile, all_exercises, recent_exercise_ids), source="rules-engine")
-
-
-def _to_catalog_exercise(row: Exercise) -> CatalogExercise:
-    info = knowledge(row)
-    return CatalogExercise(
-        id=str(row.id), name=row.name, name_raw=row.name_raw, muscle_primary=row.muscle_primary, equipment=row.equipment,
-        target_key=row.target_key, is_warmup=row.is_warmup, is_stretch=row.is_stretch,
-        complexity=row.complexity, joints=row.joints or [],
-        required_equipment=info.get('equipment', {}).get('required', []),
-        target_muscles=info.get('targetMuscles', []), exercise_type=info.get('exerciseType', 'Strength'),
-        source_scores=info.get('sourceScores', {}), measurement=info.get('measurement', {}),
-    )
+        return GeneratedPlan(plan=rules_plan(profile, all_exercises, recent_exercise_ids), source="rules-engine", provider_failures=failures, profile_revision=profile.updated_at)
+    return GeneratedPlan(plan=rules_plan(profile, all_exercises, recent_exercise_ids), source="rules-engine", profile_revision=profile.updated_at)
 
 
 def _now_minus_days(days: int):
@@ -202,10 +194,17 @@ def rules_plan(profile: Profile, catalog: list[CatalogExercise], recent_exercise
     priorities = list(profile.priority_muscles or [])
     regions = {injury["region"] for injury in (profile.injuries or [])}
     dosage = dose(profile)
+    try:
+        validate_injuries(profile.injuries or [])
+    except ValueError as error:
+        raise PlanGenerationError(str(error)) from error
+    sex = getattr(profile, 'sex', None)
+    if sex in ('masculino', 'feminino'):
+        catalog = [e for e in catalog if sex in e.video_variants]
     mains_target = min(7, max(4, js_round((profile.duration_minutes or 45) / 12)))
 
     def safe(exercise: CatalogExercise) -> bool:
-        return allowed_by_injury(exercise, regions) and not (profile.level == "iniciante" and exercise.complexity == "avancado")
+        return allowed_by_injury(exercise, regions) and injury_compatible(exercise, profile.injuries or []) and not (profile.level == "iniciante" and exercise.complexity == "avancado")
 
     used: set[str] = set()
     used_names: set[str] = set()
@@ -293,71 +292,17 @@ def rules_plan(profile: Profile, catalog: list[CatalogExercise], recent_exercise
             fill_rounds([None], allow_recent=True, target=4)  # 4) qualquer grupo muscular, aceitando repetir treino recente
 
         focus = list(dict.fromkeys(exercise.muscle_primary for exercise, _ in picked))[:3]
-        shoulder_day = any(exercise.target_key.startswith("ombro_") for exercise, _ in picked)
-
-        def is_cuff(e: CatalogExercise) -> bool:
-            return e.target_key.startswith("manguito_rotador_")
-
-        warm_pool = [e for e in catalog if e.is_warmup and safe(e) and unused(e)]
-        if not warm_pool:
-            # Ultimo recurso: sem opcao seguindo o filtro de lesao mas ainda
-            # inedita na semana (nunca repete exercicio) - melhor aquecer com
-            # algo fora da preferencia de lesao do que nao ter aquecimento.
-            warm_pool = [e for e in catalog if e.is_warmup and unused(e)]
-        warm_take = 2 if unique_names(warm_pool) >= remaining_days * 2 else 1
-        warmups: list[CatalogExercise] = []
-        if shoulder_day:
-            cuff_pool = [e for e in warm_pool if is_cuff(e)]
-            if not cuff_pool:
-                # Mesmo raciocinio do warm_pool: sem manguito seguro e inedito
-                # sobrando, aceita qualquer manguito ainda nao usado na semana
-                # em vez de deixar o dia de ombro sem esse aquecimento.
-                cuff_pool = [e for e in catalog if e.is_warmup and is_cuff(e) and unused(e)]
-            warmups.extend(unique_by_name(cuff_pool, used_names, 1))
-            for exercise in warmups:
-                mark(exercise)
-        non_cuff_pool = [e for e in warm_pool if not is_cuff(e) and unused(e)]
-        ordered_warmups = (
-            [e for e in non_cuff_pool if not e.is_stretch and e.muscle_primary in focus]
-            + [e for e in non_cuff_pool if not e.is_stretch]
-            + non_cuff_pool
-        )
-        extra_warmups = unique_by_name(ordered_warmups, used_names, max(warm_take - len(warmups), 0 if warmups else 1))
-        if not extra_warmups and not warmups:
-            # Nao sobrou nenhum aquecimento "nao-manguito" inedito: aceita
-            # qualquer aquecimento restante do warm_pool, cuff ou nao, para
-            # garantir pelo menos 1 aquecimento no dia.
-            extra_warmups = unique_by_name(warm_pool, used_names, 1)
-        for exercise in extra_warmups:
-            mark(exercise)
-        warmups.extend(extra_warmups)
-
-        stretch_pool = sorted(
-            [e for e in catalog if e.is_stretch and safe(e) and unused(e)],
-            key=lambda e: e.muscle_primary in focus, reverse=True,
-        )
-        if not stretch_pool:
-            # Mesmo ultimo recurso do aquecimento: aceita alongamento fora do
-            # filtro de lesao, ainda inedito na semana, em vez de dia sem
-            # alongamento nenhum.
-            stretch_pool = [e for e in catalog if e.is_stretch and unused(e)]
-        stretch_take = 2 if unique_names(stretch_pool) >= remaining_days * 2 else 1
-        stretches = unique_by_name(stretch_pool, used_names, stretch_take)
-        for exercise in stretches:
-            mark(exercise)
-
-        exercises = (
-            [PlanItem(exerciseId=e.id, phase="alongamento", sets=2, reps="30s", restSeconds=20, reserveExerciseIds=[]) for e in stretches]
-            + [PlanItem(exerciseId=e.id, phase="aquecimento", sets=2, reps="12-15", restSeconds=30, reserveExerciseIds=[]) for e in warmups]
-            + [
-                PlanItem(exerciseId=exercise.id, phase="principal", sets=dosage.sets, reps=dosage.reps, restSeconds=dosage.rest, reserveExerciseIds=[r.id for r in reserves])
-                for exercise, reserves in picked
-            ]
-        )
+        exercises = [
+            PlanItem(exerciseId=exercise.id, phase="principal", sets=dosage.sets, reps=dosage.reps, restSeconds=dosage.rest, reserveExerciseIds=[r.id for r in reserves])
+            for exercise, reserves in picked
+        ]
         days.append(PlanDay(weekday=weekday, title=slot.title, focusMuscles=focus, exercises=exercises))
 
     plan = WorkoutPlan(days=days)
-    return validate_plan(plan, catalog, active_days, list(available))
+    try:
+        return validate_plan(prepare_plan(plan, catalog, profile), catalog, active_days, list(available))
+    except ValueError as error:
+        raise PlanGenerationError(str(error)) from error
 
 
 def recommendation_score(exercise: CatalogExercise, profile: Profile, priorities: list[str], muscle: str | None,
@@ -396,9 +341,10 @@ def find_reserves(
         and not reserve.is_warmup and not reserve.is_stretch and safe(reserve)
         and reserve.exercise_type == 'Strength' and not reserve.target_key.startswith('individual_')
         and reserve.target_key == exercise.target_key and reserve.equipment != exercise.equipment
+        and reserve.equipment in available and set(reserve.required_equipment).issubset(available)
         and (exercise.equipment not in FIXED_EQUIPMENT or reserve.equipment in FREE_EQUIPMENT)
     ]
-    eligible.sort(key=lambda r: (r.id in recent_exercise_ids, r.equipment in available, r.equipment in FREE_EQUIPMENT), reverse=True)
+    eligible.sort(key=lambda r: (r.id not in recent_exercise_ids, r.equipment in FREE_EQUIPMENT), reverse=True)
     reserves: list[CatalogExercise] = []
     names: set[str] = set()
     for reserve in eligible:
@@ -424,6 +370,8 @@ def balanced_catalog(exercises: list[CatalogExercise]) -> list[CatalogExercise]:
 
 
 def unique_by_name(exercises: list[CatalogExercise], used_names: set[str], limit: int) -> list[CatalogExercise]:
+    if limit <= 0:
+        return []
     selected: list[CatalogExercise] = []
     names = set(used_names)
     for exercise in exercises:
@@ -477,7 +425,7 @@ GEMINI_PLAN_SCHEMA = {
 }
 
 
-async def gemini_plan(profile: Profile, catalog: list[CatalogExercise], progress: dict, recent_exercise_ids: set[str] | None = None):
+async def gemini_plan(profile: Profile, catalog: list[CatalogExercise], progress: dict, recent_exercise_ids: set[str] | None = None, full_catalog: list[CatalogExercise] | None = None):
     recent_exercise_ids = recent_exercise_ids or set()
     available = profile.equipment or ["peso_corporal"]
     payload = safe_prompt_profile(_profile_dict(profile), progress)
@@ -496,13 +444,13 @@ async def gemini_plan(profile: Profile, catalog: list[CatalogExercise], progress
 
 REGRAS OBRIGATÓRIAS:
 1. Retorne exatamente os 7 weekdays (0=domingo a 6=sábado). Somente os dias {json.dumps(profile.training_days)} têm treino; os demais têm exercises=[].
-2. Cada dia de treino deve vir nesta ordem: 1-2 itens phase="alongamento", 2-3 itens phase="aquecimento" e 4-7 itens phase="principal".
+2. Retorne 4-7 itens phase="principal" por dia de treino. A aplicação adicionará aquecimento e mobilidade compatíveis antes desses itens.
 3. Todo exercício principal deve usar equipamento com disponivel=true e ter de 1 a 3 reserveExerciseIds.
 4. Cada reserva deve ter o MESMO alvo_exato do principal, mas equipamento diferente. Nunca troque cabeça lateral do ombro por cabeça anterior/posterior. Elevação lateral só aceita reserva de alvo ombro_cabeca_lateral; elevação frontal nunca é equivalente.
 5. Para exercícios de máquina, cabo ou smith, inclua ao menos uma reserva do mesmo alvo_exato com halter, anilha, barra, elástico ou peso corporal.
-6. Nenhum ID pode se repetir na semana inteira, nem como principal, aquecimento, alongamento ou reserva.
-7. Dia com ombros exige aquecimento do manguito rotador (alvo_exato começando por manguito_rotador_).
-8. Alongamentos devem ter alongamento=true; aquecimentos devem ter aquecimento=true.
+6. Nenhum principal ou reserva pode se repetir na semana inteira.
+7. Não prescreva reabilitação. A preparação regional e o manguito rotador serão selecionados e validados pela aplicação.
+8. Não escolha alongamentos ou aquecimentos como principais ou reservas.
 9. Personalize volume, repetições, descanso e seleção principalmente para goal, priorityMuscles, intensity, level, durationMinutes e equipment. Use progressSummary para progressão gradual, sem saltos bruscos.
 10. Nunca escolha como principal um item feito_ultima_semana=true. Mantenha o mesmo foco muscular com exercícios novos; esses itens podem aparecer como reserva anatomicamente equivalente.
 11. Respeite lesões e recuperação. Não diagnostique, não invente IDs e escreva títulos em português.
@@ -523,7 +471,8 @@ Catálogo: {json.dumps(compact_catalog)}"""
                 ),
             )
             parsed = WorkoutPlan.model_validate(json.loads(response.text or "{}"))
-            validated = validate_plan(parsed, catalog, profile.training_days, available)
+            validation_catalog = full_catalog if full_catalog is not None else catalog
+            validated = validate_plan(prepare_plan(parsed, validation_catalog, profile), validation_catalog, profile.training_days, available)
             return GeneratedPlan(plan=validated, source=f"gemini:{model}")
         except Exception as error:  # noqa: BLE001 - qualquer falha do provedor cai para o próximo modelo
             failures.append(f"{model}: {str(error)[:240]}")

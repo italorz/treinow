@@ -1,9 +1,12 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
+import { useQueryClient } from "@tanstack/react-query";
+import { clearVideoCache } from "../video";
 
 export function AuthPage({ register = false }: { register?: boolean }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [error, setError] = useState("");
   const [role, setRole] = useState<"student" | "trainer">("student");
   async function submit(e: React.FormEvent<HTMLFormElement>) {
@@ -11,7 +14,9 @@ export function AuthPage({ register = false }: { register?: boolean }) {
     const values = Object.fromEntries(new FormData(e.currentTarget));
     try {
       const result = await api<any>(register ? "/auth/register" : "/auth/login", { method: "POST", body: JSON.stringify(register ? { ...values, role } : values) });
-      navigate(result.user.role === "trainer" ? "/personal" : "/hoje");
+      clearVideoCache();
+      queryClient.clear();
+      navigate(result.user.role === "trainer" ? "/personal" : register ? "/meta" : "/hoje");
     } catch (err) { setError((err as Error).message); }
   }
   return <div className="auth-page">
