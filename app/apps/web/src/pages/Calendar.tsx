@@ -5,6 +5,7 @@ import { api } from "../api";
 import { ExerciseVideo } from "../video";
 import { EquipmentIcon } from "../equipment";
 import { WorkoutPreparation } from "../preparation";
+import { ExerciseGuidance } from "../exercise-guidance";
 
 const phaseOrder: Record<string, number> = { aquecimento: 0, alongamento: 1, principal: 2 };
 
@@ -58,11 +59,12 @@ function DayModal({ weekday, onClose }: { weekday: number; onClose: () => void }
             {e.phase === "principal" && <span className="tag main">Principal</span>}
             <strong className="cal-name">{e.name}</strong>
             <span className="cal-meta">{e.sets} séries · {e.reps} reps · {e.restSeconds}s descanso</span>
+            <ExerciseGuidance guidance={e.guidance}/>
             {!!e.reserves?.length && <details className="reserves">
               <summary>Alternativas sem depender do aparelho</summary>
               {e.reserves.map((r: any) => <div key={r.id} className="reserve-row">
                 <ExerciseVideo id={r.id} eager={false} className="reserve-video"/>
-                <div><strong>{r.name}</strong><EquipmentIcon equipment={r.equipment} name={r.name}/></div>
+                <div><strong>{r.name}</strong><EquipmentIcon equipment={r.equipment} name={r.name}/><ExerciseGuidance guidance={r.guidance}/></div>
               </div>)}
             </details>}
           </div>

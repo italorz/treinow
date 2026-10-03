@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { ExerciseVideo } from "../video";
 import { domainLabel } from "../i18n";
+import { ExerciseGuidance } from "../exercise-guidance";
 
 // Coordenadas em % de cada metade quadrada (887x887) do sprite ecorche.png,
 // medidas pixel a pixel. O contêiner .anatomy tem aspect-ratio 1/1 igual ao da
@@ -100,6 +101,7 @@ function ExerciseModal({ exercise, onClose }: any) {
         </div>}
         <p className="muted cap">{domainLabel(exercise.equipment)} · {domainLabel(exercise.complexity)}</p>
         {detail.isLoading && <div className="skeleton" style={{ height: 80 }}/>}
+        <ExerciseGuidance guidance={ex?.guidance}/>
         {ex && <dl className="meta-grid">
           {ex.knowledge?.targetMuscles?.length > 0 && <div><dt>Músculos-alvo</dt><dd>{ex.knowledge.targetMuscles.map(domainLabel).join(", ")}</dd></div>}
           {ex.knowledge?.equipment?.required?.length > 0 && <div><dt>Equipamentos necessários</dt><dd>{ex.knowledge.equipment.required.map(domainLabel).join(", ")}</dd></div>}

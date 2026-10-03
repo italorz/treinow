@@ -64,6 +64,21 @@ resultado antigo antes de ativá-lo, usando a revisão do perfil sob lock no ban
 
 Referência: [AAOS, Rotator Cuff and Shoulder Conditioning Program](https://www.orthoinfo.org/recovery/rotator-cuff-and-shoulder-conditioning-program).
 
+## Orientações de execução
+
+A API acrescenta `guidance` aos exercícios do treino, às reservas e aos detalhes
+da biblioteca, sem modificar vídeos, planos ou importar novamente o catálogo.
+As instruções são orientações gerais por família de movimento e músculos-alvo,
+não descrições técnicas extraídas das planilhas nem avaliação individual dos vídeos.
+Movimentos sem família conhecida são identificados como orientação geral.
+A tela Hoje, o calendário e a biblioteca exibem descrição curta e detalhes
+recolhidos com execução, compensações observáveis e sinais de interrupção.
+Sensação em um músculo auxiliar não é classificada automaticamente como erro;
+a localização do esforço não diagnostica a técnica nem uma lesão.
+
+Referências: [Mayo Clinic, Weight training: Do's and don'ts of proper technique](https://www.mayoclinic.org/healthy-lifestyle/fitness/in-depth/weight-training/art-20045842)
+e [AAOS, Rotator Cuff and Shoulder Conditioning Program](https://www.orthoinfo.org/recovery/rotator-cuff-and-shoulder-conditioning-program).
+
 ## Ativação e planos existentes
 
 Por solicitação explícita do responsável pelo banco de teste, esta migração **apaga** o catálogo legado e suas relações. Antes de reutilizá-la em outro banco com histórico real, revisar essa política e fazer backup.

@@ -7,6 +7,7 @@ schema interno do banco.
 
 from .models import AnalyticsSnapshot, Exercise, Tenant, User, WorkoutSession
 from .catalog import knowledge
+from .exercise_guidance import exercise_guidance
 
 
 def public_user(user: User) -> dict:
@@ -36,6 +37,7 @@ def exercise_detail(exercise: Exercise) -> dict:
         "movementPattern": exercise.movement_pattern, "targetKey": exercise.target_key,
         "isUnilateral": exercise.is_unilateral, "isWarmup": exercise.is_warmup, "isStretch": exercise.is_stretch,
         "knowledge": knowledge(exercise),
+        "guidance": exercise_guidance(exercise),
         "videoVariants": list(exercise.video.get("variants", {})),
         "joints": exercise.joints, "requiresHighMindMuscleAwareness": exercise.requires_high_mind_muscle_awareness,
     }

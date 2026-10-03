@@ -61,3 +61,14 @@
 .session-action{margin:0 0 14px;display:flex;align-items:center;justify-content:center;gap:8px}.session-action.finish{margin:16px 0 0;background:#29334a}.check.selected{background:var(--green);border-color:var(--green);color:#fff}.reserve-row.familiar{margin-top:6px;padding:8px;border:1px solid #f1a33c;background:#fff7e8;border-radius:11px}.familiar-note{color:#b76500!important;font-weight:700;text-transform:none!important}.reserve-row>.check{margin-left:auto;align-self:center;flex:0 0 auto}.reserve-row>div{flex:1;min-width:0}.confirm-modal{max-width:410px}.confirm-modal p{color:var(--muted);line-height:1.5}.modal-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.modal-actions button{border:1px solid var(--line);background:#fff;padding:11px;border-radius:11px}.modal-actions .danger-action{background:#a52d3d;color:#fff;border-color:#a52d3d}.workout-comment{display:grid;gap:8px;font-size:12px;font-weight:700;color:var(--muted);margin:14px 0}.workout-comment textarea{min-height:110px;resize:vertical;border:1px solid var(--line);border-radius:12px;padding:12px;font:inherit;color:var(--ink)}
 @media(min-width:900px){.student-shell>header{padding-left:20px;padding-right:20px}.student-shell .bottom-nav{width:min(100%,480px)}}
 @media(prefers-reduced-motion:reduce){.anatomy-layer,.hotspot,.hotspot-label{transition:none!important}.hotspot.active{animation:none!important}}
+.exercise-guidance{width:100%;min-width:0;margin-top:8px;font-size:12px;line-height:1.55;overflow-wrap:anywhere}
+.exercise-guidance .guidance-description{margin:0 0 5px;color:var(--muted);font-size:12px;line-height:1.55}
+.exercise-guidance summary{cursor:pointer;color:var(--green);font-size:12px;font-weight:700;padding:5px 0}
+.exercise-guidance summary:focus-visible{outline:2px solid var(--green);outline-offset:3px;border-radius:3px}
+.guidance-content{padding-top:6px;border-top:1px solid var(--line)}
+.guidance-content ol{padding-left:20px;margin:0 0 8px}.guidance-content li+li{margin-top:5px}
+.exercise-guidance .guidance-content p{margin:8px 0;color:var(--ink);font-size:12px;line-height:1.55}
+.exercise-guidance .guidance-content strong{font-size:12px;font-weight:700}
+.exercise-guidance .guidance-content .guidance-sensation{color:var(--muted)}
+.exercise-guidance .guidance-content .guidance-stop{border-left:3px solid #bc3544;padding-left:9px;color:#8b2833}
+@media(max-width:480px){.today-card{gap:9px}.today-card>.exercise-number{display:none}.today-card .video-placeholder{width:48px;height:48px}.reserve-row{align-items:flex-start}}
