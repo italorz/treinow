@@ -109,26 +109,30 @@ def _load_real_catalog() -> list[CatalogExercise]:
 
 def _assert_every_day_is_complete(plan) -> None:
     for day in plan.days:
-        assert len([i for i in day.exercises if i.phase == "aquecimento"]) >= 1
+        assert day.guidedGeneralWarmup or len([i for i in day.exercises if i.phase == "aquecimento"]) >= 1
         assert len([i for i in day.exercises if i.phase == "principal"]) >= 4
         assert len([i for i in day.exercises if i.phase == "alongamento"]) >= 1
 
 
 def test_full_week_with_real_catalog_bodyweight_and_dumbbells_only():
-    balanced = balanced_catalog(_load_real_catalog())
+    # The rules engine receives the full catalog; balancing is only for the AI payload.
+    catalog = _load_real_catalog()
     profile = base_profile(training_days=[0, 1, 2, 3, 4, 5, 6], equipment=["peso_corporal", "halter"], priority_muscles=[])
-    _assert_every_day_is_complete(rules_plan(profile, balanced))
+    _assert_every_day_is_complete(rules_plan(profile, catalog))
 
 
 def test_full_week_long_workouts_survive_narrow_equipment_and_rare_priority_muscles():
     # Regressao: com balanced_catalog() (usado antes so para limitar o payload
     # da IA) alimentando tambem o motor de regras, uma semana de 7 dias com
-    # treinos de 90min, equipamento raro ("bola") e musculos prioritarios de
+    # treinos de 90min, equipamento restrito e musculos prioritarios de
     # catalogo pequeno (panturrilha/trapezio/antebraco) esgotava o catalogo
     # reduzido no ultimo dia e falhava com "sem 4 exercicios principais".
+    # With the current catalog, ball/bodyweight alone permits only 19 disjoint
+    # main/reserve pairs; seven days require at least 28. Add one portable item
+    # so the fixture remains feasible without relaxing injury or reserve rules.
     real = _load_real_catalog()
     profile = base_profile(
-        training_days=[0, 1, 2, 3, 4, 5, 6], duration_minutes=90, equipment=["bola"],
+        training_days=[0, 1, 2, 3, 4, 5, 6], duration_minutes=90, equipment=["bola", "elastico"],
         priority_muscles=["panturrilha", "trapezio", "antebraco"],
         injuries=[{"region": "joelho", "severity": "grave", "status": "cronica", "medicallyCleared": True}],
     )

@@ -1,3 +1,4 @@
+import { ExerciseMedia } from "../narration";
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -50,7 +51,7 @@ function DayModal({ weekday, onClose }: { weekday: number; onClose: () => void }
         {day?.focusMuscles?.length > 0 && <p className="muted cap">{day.focusMuscles.join(" · ")}</p>}
         <WorkoutPreparation notes={day?.preparationNotes}/>
         {query.isLoading && <div className="skeleton" style={{ height: 120 }}/>}
-        {day?.exercises && [...day.exercises].sort((a: any,b: any) => (phaseOrder[a.phase] ?? 99)-(phaseOrder[b.phase] ?? 99)).map((e: any, i: number) => <div key={e.id} className="cal-row">
+        {day?.exercises && [...day.exercises].sort((a: any,b: any) => (phaseOrder[a.phase] ?? 99)-(phaseOrder[b.phase] ?? 99)).map((e: any, i: number) => <ExerciseMedia key={e.id}><div className="cal-row">
           <span className="exercise-number">{String(i + 1).padStart(2, "0")}</span>
           <ExerciseVideo id={e.id} className="reco-video"/>
           <div className="grow">
@@ -59,16 +60,16 @@ function DayModal({ weekday, onClose }: { weekday: number; onClose: () => void }
             {e.phase === "principal" && <span className="tag main">Principal</span>}
             <strong className="cal-name">{e.name}</strong>
             <span className="cal-meta">{e.sets} séries · {e.reps} reps · {e.restSeconds}s descanso</span>
-            <ExerciseGuidance guidance={e.guidance}/>
+            <ExerciseGuidance id={e.id} guidance={e.guidance} executionGuide={e.executionGuide}/>
             {!!e.reserves?.length && <details className="reserves">
               <summary>Alternativas sem depender do aparelho</summary>
-              {e.reserves.map((r: any) => <div key={r.id} className="reserve-row">
+              {e.reserves.map((r: any) => <ExerciseMedia key={r.id}><div className="reserve-row">
                 <ExerciseVideo id={r.id} eager={false} className="reserve-video"/>
-                <div><strong>{r.name}</strong><EquipmentIcon equipment={r.equipment} name={r.name}/><ExerciseGuidance guidance={r.guidance}/></div>
-              </div>)}
+                <div><strong>{r.name}</strong><EquipmentIcon equipment={r.equipment} name={r.name}/><ExerciseGuidance id={r.id} guidance={r.guidance} executionGuide={r.executionGuide}/></div>
+              </div></ExerciseMedia>)}
             </details>}
           </div>
-        </div>)}
+        </div></ExerciseMedia>)}
         {day && !day.exercises?.length && <p className="muted">Dia de recuperação.</p>}
       </div>
     </div>

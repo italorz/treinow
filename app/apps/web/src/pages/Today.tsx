@@ -1,3 +1,4 @@
+import { ExerciseMedia } from "../narration";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Flame, Play, Square, X } from "lucide-react";
 import { useState } from "react";
@@ -46,11 +47,11 @@ export function TodayPage() {
 
 function TodayExercise({ exercise, index, active, selectedId, onChoose }: any) {
   const [showReserves, setShowReserves] = useState(false); const selected = selectedId === exercise.id;
-  return <article className="today-card"><span className="exercise-number">{String(index+1).padStart(2,"0")}</span><ExerciseVideo id={exercise.id} eager className="video-placeholder"/><div className="grow">
+  return <ExerciseMedia><article className="today-card"><span className="exercise-number">{String(index+1).padStart(2,"0")}</span><ExerciseVideo id={exercise.id} eager className="video-placeholder"/><div className="grow">
     <span className={`tag ${exercise.phase === "aquecimento" ? "warm" : exercise.phase === "alongamento" ? "stretch" : "main"}`}>{exercise.phase === "principal" ? "Treino principal" : exercise.phase}</span>
     <h3>{exercise.name}</h3><p>{exercise.sets} séries · {exercise.reps} reps · {exercise.restSeconds}s</p>
-    <ExerciseGuidance guidance={exercise.guidance}/>
-    {!!exercise.reserves?.length && <details className="reserves" onToggle={e=>{if(e.target === e.currentTarget) setShowReserves(e.currentTarget.open);}}><summary>Alternativas sem depender do aparelho</summary>{showReserves && exercise.reserves.map((reserve:any)=><div key={reserve.id} className={`reserve-row ${reserve.familiar ? "familiar" : ""}`}><ExerciseVideo id={reserve.id} eager={false} className="reserve-video"/><div><strong>{reserve.name}</strong>{reserve.familiar && <span className="familiar-note">Você já sabe fazer este</span>}<EquipmentIcon equipment={reserve.equipment} name={reserve.name}/><ExerciseGuidance guidance={reserve.guidance}/></div>{active && <button className={`check ${selectedId === reserve.id ? "selected" : ""}`} aria-label={`Concluir ${reserve.name}`} onClick={()=>onChoose(exercise.id,reserve.id)}>{selectedId === reserve.id && <Check size={16}/>}</button>}</div>)}</details>}
-  </div>{active && <button className={`check ${selected ? "selected" : ""}`} aria-label="Concluir exercício" onClick={()=>onChoose(exercise.id,exercise.id)}>{selected && <Check size={18}/>}</button>}</article>;
+    <ExerciseGuidance id={exercise.id} guidance={exercise.guidance} executionGuide={exercise.executionGuide}/>
+    {!!exercise.reserves?.length && <details className="reserves" onToggle={e=>{if(e.target === e.currentTarget) setShowReserves(e.currentTarget.open);}}><summary>Alternativas sem depender do aparelho</summary>{showReserves && exercise.reserves.map((reserve:any)=><ExerciseMedia key={reserve.id}><div className={`reserve-row ${reserve.familiar ? "familiar" : ""}`}><ExerciseVideo id={reserve.id} eager={false} className="reserve-video"/><div><strong>{reserve.name}</strong>{reserve.familiar && <span className="familiar-note">Você já sabe fazer este</span>}<EquipmentIcon equipment={reserve.equipment} name={reserve.name}/><ExerciseGuidance id={reserve.id} guidance={reserve.guidance} executionGuide={reserve.executionGuide}/></div>{active && <button className={`check ${selectedId === reserve.id ? "selected" : ""}`} aria-label={`Concluir ${reserve.name}`} onClick={()=>onChoose(exercise.id,reserve.id)}>{selectedId === reserve.id && <Check size={16}/>}</button>}</div></ExerciseMedia>)}</details>}
+  </div>{active && <button className={`check ${selected ? "selected" : ""}`} aria-label="Concluir exercício" onClick={()=>onChoose(exercise.id,exercise.id)}>{selected && <Check size={18}/>}</button>}</article></ExerciseMedia>;
 }
 function ConfirmModal({ title, onClose, children }: any) { return <div className="modal-backdrop"><div className="modal confirm-modal" role="dialog" aria-modal="true"><button className="modal-close" onClick={onClose} aria-label="Fechar"><X size={20}/></button><div className="modal-body"><h2>{title}</h2>{children}</div></div></div>; }

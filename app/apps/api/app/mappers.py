@@ -38,6 +38,7 @@ def exercise_detail(exercise: Exercise) -> dict:
         "isUnilateral": exercise.is_unilateral, "isWarmup": exercise.is_warmup, "isStretch": exercise.is_stretch,
         "knowledge": knowledge(exercise),
         "guidance": exercise_guidance(exercise),
+        "executionGuide": execution_guide(exercise),
         "videoVariants": list(exercise.video.get("variants", {})),
         "joints": exercise.joints, "requiresHighMindMuscleAwareness": exercise.requires_high_mind_muscle_awareness,
     }
@@ -73,4 +74,19 @@ def snapshot_public(snapshot: AnalyticsSnapshot | None) -> dict | None:
         "personalRecords": snapshot.personal_records, "weeklyVolume": snapshot.weekly_volume,
         "weightTrend": snapshot.weight_trend, "bmiTrend": snapshot.bmi_trend,
         "generatedAt": snapshot.generated_at,
+    }
+
+
+GUIDANCE_DISCLAIMER = "Orientação geral, não substitui um profissional."
+
+
+def execution_guide(exercise: Exercise | None) -> dict | None:
+    guidance = getattr(exercise, "guidance", None)
+    if guidance is None:
+        return None
+    narration = guidance.get("narration") or {}
+    return {
+        **{key: guidance.get(key) for key in ("execucao", "evitarLesoes", "cargaExcessiva", "narracao")},
+        "disclaimer": GUIDANCE_DISCLAIMER,
+        "hasNarration": bool(narration.get("audioKey") and narration.get("subtitlesKey")),
     }

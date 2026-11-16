@@ -20,6 +20,7 @@ class Config(BaseSettings):
     MINIO_SECRET_KEY: str = "minioadmin-change"
     MINIO_BUCKET: str = "trainow"
     GDRIVE_BUCKET: str = "trainow"
+    NARRATION_BUCKET: str = "trainow-narracao"
     VIDEO_STORAGE_PROVIDER: Literal["gdrive", "s3"] = "gdrive"
     PLAN_ENGINE: Literal["rules", "gemini"] = "rules"
     GEMINI_API_KEY: str | None = None

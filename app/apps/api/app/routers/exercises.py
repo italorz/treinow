@@ -1,12 +1,13 @@
 from pathlib import Path
 import time
+import re
 import unicodedata
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.responses import StreamingResponse
+from starlette.responses import Response, StreamingResponse
 
 from ..config import config
 from ..catalog import active_catalog, profile_catalog, planning_exercise, preferred_video_variant
@@ -105,6 +106,80 @@ async def get_video_url(exercise_id: str, db: AsyncSession = Depends(get_session
 
 async def _user_profile(db: AsyncSession, user: SessionUser) -> Profile | None:
     return (await db.execute(select(Profile).where(Profile.student_id == uuid.UUID(user.id)))).scalar_one_or_none()
+
+
+def srt_to_vtt(text: str) -> str:
+    text = text.lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n").strip()
+    text = re.sub(r"(\d{2}:\d{2}:\d{2}),(\d{3})", r"\1.\2", text)
+    return "WEBVTT\n\n" + text + "\n"
+
+
+def _narration(exercise: Exercise) -> dict:
+    narration = (exercise.guidance or {}).get("narration") or {}
+    if not narration.get("audioKey") or not narration.get("subtitlesKey"):
+        raise HTTPException(404, "Narração não disponível")
+    return narration
+
+
+@router.get("/exercises/{exercise_id}/narration-url")
+async def get_narration_url(exercise_id: str, db: AsyncSession = Depends(get_session), _user: SessionUser = Depends(require_user)):
+    exercise = await _require_exercise(db, exercise_id)
+    _narration(exercise)
+    expires = int(time.time()) + 300
+
+    def url(kind: str) -> str:
+        signature = media_signature(f"{exercise_id}:narration-{kind}", expires)
+        return f"{config.PUBLIC_URL}/v1/media/{exercise_id}/narration?kind={kind}&expires={expires}&signature={signature}"
+
+    return {"audioUrl": url("audio"), "subtitlesUrl": url("subtitles")}
+
+
+@router.get("/media/{exercise_id}/narration")
+async def get_narration(exercise_id: str, request: Request, db: AsyncSession = Depends(get_session)):
+    kind = request.query_params.get("kind", "")
+    expires = request.query_params.get("expires")
+    signature = request.query_params.get("signature")
+    try:
+        expiry = int(expires or 0)
+    except ValueError:
+        raise HTTPException(403, "Expiração de mídia inválida")
+    expected = media_signature(f"{exercise_id}:narration-{kind}", expiry)
+    if kind not in ("audio", "subtitles") or not signature or not expires or expiry < time.time() or not safe_equal(signature, expected):
+        raise HTTPException(403, "URL de mídia inválida ou expirada")
+    exercise = await _require_exercise(db, exercise_id)
+    narration = _narration(exercise)
+    kwargs = {"Bucket": config.NARRATION_BUCKET, "Key": narration["audioKey" if kind == "audio" else "subtitlesKey"]}
+    range_header = request.headers.get("range") if kind == "audio" else None
+    if range_header:
+        kwargs["Range"] = range_header
+    s3_context = s3_client()
+    s3 = await s3_context.__aenter__()
+    try:
+        obj = await s3.get_object(**kwargs)
+        if kind == "subtitles":
+            text = (await obj["Body"].read()).decode("utf-8-sig")
+    except Exception:
+        await s3_context.__aexit__(None, None, None)
+        raise
+    if kind == "subtitles":
+        await s3_context.__aexit__(None, None, None)
+        return Response(srt_to_vtt(text), media_type="text/vtt", headers={"cache-control": "private, max-age=300"})
+    headers = {"cache-control": "private, max-age=300", "accept-ranges": "bytes"}
+    if obj.get("ContentLength") is not None:
+        headers["content-length"] = str(obj["ContentLength"])
+    status_code = 200
+    if range_header and obj.get("ContentRange"):
+        headers["content-range"] = obj["ContentRange"]
+        status_code = 206
+
+    async def body_stream():
+        try:
+            async for chunk in obj["Body"]:
+                yield chunk
+        finally:
+            await s3_context.__aexit__(None, None, None)
+
+    return StreamingResponse(body_stream(), status_code=status_code, media_type="audio/mpeg", headers=headers)
 
 
 @router.get("/media/{exercise_id}")

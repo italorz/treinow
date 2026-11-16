@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_arq_pool, get_session
 from ..catalog import active_catalog, PLAN_CATALOG_TAG
-from ..mappers import session_shape
+from ..mappers import session_shape, execution_guide
 from ..exercise_guidance import exercise_guidance
 from ..models import Exercise, Measurement, WorkoutLog, WorkoutPlan, WorkoutSession
 from ..numeric import round1
@@ -71,11 +71,12 @@ async def _resolve_plan_day(db: AsyncSession, student_id: str, weekday: int) -> 
             "musclePrimary": exercise.muscle_primary if exercise else None,
             "targetKey": exercise.target_key if exercise else None,
             "guidance": exercise_guidance(exercise) if exercise else None,
+            "executionGuide": execution_guide(exercise),
             "warmup": item["phase"] == "aquecimento" or item.get("warmup") is True,
             "reserves": [
                 {
                     "id": rid,
-                    **({"name": by_id[rid].name, "equipment": by_id[rid].equipment, "guidance": exercise_guidance(by_id[rid])} if rid in by_id else {}),
+                    **({"name": by_id[rid].name, "equipment": by_id[rid].equipment, "guidance": exercise_guidance(by_id[rid]), "executionGuide": execution_guide(by_id[rid])} if rid in by_id else {}),
                     "familiar": rid in familiar,
                 }
                 for rid in item.get("reserveExerciseIds", [])

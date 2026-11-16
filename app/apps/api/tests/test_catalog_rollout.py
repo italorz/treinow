@@ -48,11 +48,16 @@ class Storage:
 
 @pytest.mark.asyncio
 async def test_rollout_purges_legacy_dependencies_preserves_profiles_and_is_idempotent(engine, tmp_path, monkeypatch):
+    monkeypatch.setattr(worker.config, 'VIDEO_STORAGE_PROVIDER', 's3')
     factory=async_sessionmaker(engine,expire_on_commit=False)
     slug=f'new-{uuid.uuid4()}'
     data=item(slug)
     path=tmp_path/'catalog.json'
     path.write_text(json.dumps([data]),encoding='utf-8')
+    guidance_path=tmp_path/'guidance.json'
+    guide={'execucao':['Controle o movimento.'],'evitarLesoes':['Evite compensações.'],'cargaExcessiva':{'normal':'Esforço','alerta':['Perda de controle'],'pare':'Dor'},'narracao':'Controle o movimento.','reviewed':False,'narration':None}
+    guidance_path.write_text(json.dumps({'items':{slug:guide}}),encoding='utf-8')
+    monkeypatch.setattr(worker,'GUIDANCE_PATH',guidance_path)
     (tmp_path/'new.mp4').write_bytes(b'new-video')
     (tmp_path/'female.mp4').write_bytes(b'new-video')
     store=Storage()
@@ -107,19 +112,22 @@ async def test_rollout_purges_legacy_dependencies_preserves_profiles_and_is_idem
         request=Request({'type':'http','query_string':b'search=new+exercise&muscle=ombro','headers':[]})
         listing=await list_exercises(request,db,SessionUser(str(user_id),'student'))
         assert [e['slug'] for e in listing['items']]==[slug]
-        assert (await muscle_summary(db,None))['counts']=={'peitoral':1,'ombro':1}
+        assert (await muscle_summary(db,SessionUser(str(user_id),'student')))['counts']=={'peitoral':1,'ombro':1}
         new_id=listing['items'][0]['id']
+        assert (await db.get(Exercise,uuid.UUID(new_id))).guidance==guide
         signed=await get_video_url(new_id,db,SessionUser(str(user_id),'student'),variant='feminino')
         assert 'variant=feminino' in signed['url']
         expiry=int(time.time())+300
         tampered=Request({'type':'http','query_string':f'variant=masculino&expires={expiry}&signature={media_signature(new_id+":feminino",expiry)}'.encode(),'headers':[]})
         with pytest.raises(HTTPException) as error: await get_media(new_id,tampered,db)
         assert error.value.status_code==403
+    guidance_path.unlink()  # Missing optional catalog clears guidance without failing import.
     again=await worker.import_catalog({'redis':queue})
     assert again['active']==1
     assert all(again[k]==0 for k in ('deletedExercises','deletedPlans','deletedSessions','deletedLogs'))
     async with factory() as db:
         assert (await db.execute(select(Exercise.id).where(Exercise.slug==slug))).scalar_one()==uuid.UUID(new_id)
+        assert (await db.get(Exercise,uuid.UUID(new_id))).guidance is None
 
     # A missing file prevents activation/retirement before the database is touched.
     broken=copy.deepcopy(data);broken['video']['variants']['feminino']['fileName']='missing.mp4'
@@ -128,7 +136,7 @@ async def test_rollout_purges_legacy_dependencies_preserves_profiles_and_is_idem
     async with factory() as db: assert (await db.get(Exercise,uuid.UUID(new_id))).is_active
 
     # The deleted legacy plan cannot leak into the new plan/version.
-    generated=SimpleNamespace(source='rules-engine',plan=SimpleNamespace(days=[]),provider_failures=None)
+    generated=SimpleNamespace(source='rules-engine',plan=SimpleNamespace(days=[]),provider_failures=None,profile_revision=None)
     monkeypatch.setattr(worker,'generate_plan',AsyncMock(return_value=generated))
     result=await worker.generate_workout({},str(user_id))
     assert result['version']==1

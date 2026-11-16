@@ -1,5 +1,6 @@
+import { useExerciseMedia } from "./narration";
 import { X, ZoomIn } from "lucide-react";
-import { useEffect, useState, type SyntheticEvent } from "react";
+import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import { api } from "./api";
 
 const blockContextMenu = (e: SyntheticEvent) => e.preventDefault();
@@ -25,6 +26,8 @@ async function getVideoUrl(id: string, variant = "") {
 export function ExerciseVideo({ id, variant = "", eager = true, controls = false, className = "", zoomable = true }: {
   id: string; variant?: string; eager?: boolean; controls?: boolean; className?: string; zoomable?: boolean;
 }) {
+  const media = useExerciseMedia();
+  const videoRef = useRef<HTMLVideoElement>(null);
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [zoom, setZoom] = useState(false);
@@ -45,9 +48,23 @@ export function ExerciseVideo({ id, variant = "", eager = true, controls = false
     return () => { cancelled = true; };
   }, [id, variant, eager]);
 
+  useEffect(() => {
+    if (!media) return;
+    const startVideo = async () => {
+      if (!url) setUrl(await getVideoUrl(id, variant));
+      const video = videoRef.current;
+      if (video) {
+        video.muted = true; video.loop = true; video.currentTime = 0;
+        await video.play().catch(() => {});
+      }
+    };
+    media.startVideo = startVideo;
+    return () => { if (media.startVideo === startVideo) delete media.startVideo; };
+  }, [media, id, variant, url]);
+
   if (url) return <>
     <span className={`ex-video-wrap ${className}`}>
-      <video className="ex-video" src={url} muted loop playsInline autoPlay preload="auto"
+      <video ref={videoRef} className="ex-video" src={url} muted loop playsInline autoPlay preload="auto"
         controls={controls} controlsList="nodownload noremoteplayback" disablePictureInPicture onContextMenu={blockContextMenu}/>
       {zoomable && <button type="button" className="zoom-badge" onClick={() => setZoom(true)} aria-label="Ampliar vídeo"><ZoomIn size={14}/></button>}
     </span>

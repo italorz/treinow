@@ -84,6 +84,7 @@ class Exercise(Base):
     search_tokens: Mapped[list[str]] = mapped_column(ARRAY(String), default=list, index=True)
     classification: Mapped[dict | None] = mapped_column(JSONB)
     needs_review: Mapped[bool] = mapped_column(default=False)
+    guidance: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     video: Mapped[dict] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())

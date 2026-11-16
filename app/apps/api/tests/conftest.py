@@ -1,3 +1,5 @@
+import os
+
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -8,6 +10,9 @@ from app.models import Base
 
 @pytest.fixture(scope="session")
 def postgres_url():
+    if url := os.environ.get("TEST_DATABASE_URL"):
+        yield url
+        return
     with PostgresContainer("postgres:16-alpine") as postgres:
         yield postgres.get_connection_url().replace("psycopg2", "asyncpg")
 

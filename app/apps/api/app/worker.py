@@ -19,14 +19,17 @@ from .plan import normalized_name
 from .workout_engine import PlanGenerationError, generate_plan
 
 CATALOG_PATH = Path("/app/catalog/exercises.pt-BR.json")
+GUIDANCE_PATH = Path("/app/catalog/exercise-guidance.pt-BR.json")
 VIDEOS_DIR = Path("/app/videos")
-CATALOG_IMPORT_REVISION = 'catalog-v2-gdrive-1'
+CATALOG_IMPORT_REVISION = 'catalog-v2-guidance-1'
 
 
 async def import_catalog(ctx) -> dict:
     items = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
     if not items or len({i['slug'] for i in items}) != len(items):
         raise ValueError('Empty catalog or duplicate exercise IDs')
+    guidance_catalog = json.loads(GUIDANCE_PATH.read_text(encoding="utf-8")) if GUIDANCE_PATH.is_file() else {}
+    guidance_items = guidance_catalog.get("items", {})
     unique_videos = {}
     check_local = VIDEOS_DIR.is_dir() and config.VIDEO_STORAGE_PROVIDER == "s3"
     for item in items:
@@ -60,7 +63,7 @@ async def import_catalog(ctx) -> dict:
                         if obj['ContentLength'] != path.stat().st_size:
                             raise ValueError(f'Incomplete upload: {object_key}')
         for item in items:
-            values = _exercise_values(item)
+            values = _exercise_values(item, guidance_items.get(item["slug"]))
             stmt = pg_insert(Exercise).values(**values, slug=item["slug"])
             update_values = {**values, "updated_at": datetime.now(timezone.utc)}
             stmt = stmt.on_conflict_do_update(index_elements=["slug"], set_=update_values)
@@ -146,7 +149,7 @@ async def _purge_legacy(db, slugs: set[str]) -> tuple[dict, set]:
     return {'deletedExercises':deleted_exercises,'deletedPlans':deleted_plans,'deletedSessions':deleted_sessions,'deletedLogs':deleted_logs}, affected
 
 
-def _exercise_values(item: dict) -> dict:
+def _exercise_values(item: dict, guidance: dict | None = None) -> dict:
     return dict(
         is_active=True,
         locale=item.get("locale", "pt-BR"), name=item["name"], name_raw=item.get("nameRaw", item["name"]),
@@ -159,7 +162,7 @@ def _exercise_values(item: dict) -> dict:
         requires_high_mind_muscle_awareness=bool(item.get("requiresHighMindMuscleAwareness")),
         search_tokens=item.get("searchTokens", [normalized_name(item["name"])]),
         classification=item.get("classification"), needs_review=bool(item.get("needsReview")),
-        video=item["video"],
+        video=item["video"], guidance=guidance,
     )
 
 

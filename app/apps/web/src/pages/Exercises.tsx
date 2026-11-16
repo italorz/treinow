@@ -1,3 +1,4 @@
+import { ExerciseMedia } from "../narration";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Search, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -88,7 +89,7 @@ function ExerciseModal({ exercise, onClose }: any) {
     return () => { document.body.style.overflow = ""; window.removeEventListener("keydown", onKey); };
   }, [onClose]);
   const d = detail.data; const ex = d?.exercise;
-  return <div className="modal-backdrop" onClick={onClose}>
+  return <ExerciseMedia><div className="modal-backdrop" onClick={onClose}>
     <div className="modal" role="dialog" aria-modal="true" onClick={e => e.stopPropagation()}>
       <button type="button" className="modal-close" onClick={onClose} aria-label="Fechar"><X size={20}/></button>
       <ExerciseVideo id={exercise.id} variant={variant} eager controls className="modal-video"/>
@@ -101,7 +102,7 @@ function ExerciseModal({ exercise, onClose }: any) {
         </div>}
         <p className="muted cap">{domainLabel(exercise.equipment)} · {domainLabel(exercise.complexity)}</p>
         {detail.isLoading && <div className="skeleton" style={{ height: 80 }}/>}
-        <ExerciseGuidance guidance={ex?.guidance}/>
+        <ExerciseGuidance id={exercise.id} guidance={ex?.guidance} executionGuide={ex?.executionGuide}/>
         {ex && <dl className="meta-grid">
           {ex.knowledge?.targetMuscles?.length > 0 && <div><dt>Músculos-alvo</dt><dd>{ex.knowledge.targetMuscles.map(domainLabel).join(", ")}</dd></div>}
           {ex.knowledge?.equipment?.required?.length > 0 && <div><dt>Equipamentos necessários</dt><dd>{ex.knowledge.equipment.required.map(domainLabel).join(", ")}</dd></div>}
@@ -114,14 +115,14 @@ function ExerciseModal({ exercise, onClose }: any) {
         {d?.stretches?.length > 0 && <RecoSection title="Alongamentos recomendados" items={d.stretches}/>}
       </div>
     </div>
-  </div>;
+  </div></ExerciseMedia>;
 }
 function RecoSection({ title, items }: { title: string; items: any[] }) {
   return <section className="reco">
     <h4>{title}</h4>
-    {items.map(item => <div key={item.id} className="reco-row">
+    {items.map(item => <ExerciseMedia key={item.id}><div className="reco-row">
       <ExerciseVideo id={item.id} className="reco-video"/>
       <div><strong>{item.name}</strong><span className="cap">{domainLabel(item.equipment)}</span></div>
-    </div>)}
+    </div></ExerciseMedia>)}
   </section>;
 }
