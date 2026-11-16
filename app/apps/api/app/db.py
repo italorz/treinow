@@ -40,6 +40,8 @@ async def s3_client():
 
 
 async def ensure_bucket() -> None:
+    if config.VIDEO_STORAGE_PROVIDER == "gdrive":
+        return
     async with s3_client() as s3:
         try:
             await s3.create_bucket(Bucket=config.MINIO_BUCKET)

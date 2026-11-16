@@ -1,3 +1,4 @@
+from pathlib import Path
 import time
 import unicodedata
 import uuid
@@ -125,7 +126,25 @@ async def get_media(exercise_id: str, request: Request, db: AsyncSession = Depen
     selected_video = variants.get(variant) if variants else exercise.video
     if not selected_video:
         raise HTTPException(404, "Variante de vídeo não encontrada")
-    kwargs = {"Bucket": config.MINIO_BUCKET, "Key": selected_video["objectKey"]}
+    object_key = selected_video["objectKey"]
+    if config.VIDEO_STORAGE_PROVIDER == "gdrive" and object_key.startswith("exercises/") and selected_video.get("fileName"):
+        mp = exercise.muscle_primary or "outros"
+        etype = (
+            "alongamento"
+            if exercise.is_stretch
+            else (
+                "aquecimento"
+                if exercise.is_warmup
+                else (
+                    "aerobico"
+                    if (exercise.classification or {}).get("knowledge", {}).get("exerciseType") == "Aerobic"
+                    else "forca"
+                )
+            )
+        )
+        object_key = f"{mp}/{etype}/{variant}/{selected_video['fileName']}"
+    bucket = config.GDRIVE_BUCKET if config.VIDEO_STORAGE_PROVIDER == "gdrive" else config.MINIO_BUCKET
+    kwargs = {"Bucket": bucket, "Key": object_key}
     if range_header:
         kwargs["Range"] = range_header
 
@@ -135,6 +154,9 @@ async def get_media(exercise_id: str, request: Request, db: AsyncSession = Depen
         obj = await s3.get_object(**kwargs)
     except Exception:
         await s3_context.__aexit__(None, None, None)
+        local_file = Path("/app/videos") / selected_video.get("fileName", "")
+        if config.VIDEO_STORAGE_PROVIDER == "gdrive" and selected_video.get("fileName") and local_file.is_file():
+            return _stream_local_video(local_file, range_header)
         raise
 
     headers = {"cache-control": "private, max-age=86400", "accept-ranges": "bytes", "content-length": str(obj.get("ContentLength", ""))}
@@ -151,6 +173,37 @@ async def get_media(exercise_id: str, request: Request, db: AsyncSession = Depen
             await s3_context.__aexit__(None, None, None)
 
     return StreamingResponse(body_stream(), status_code=status_code, media_type=obj.get("ContentType", "video/mp4"), headers=headers)
+
+
+def _stream_local_video(local_file: Path, range_header: str | None) -> StreamingResponse:
+    total = local_file.stat().st_size
+    start, end = 0, total - 1
+    status_code = 200
+    headers = {"cache-control": "private, max-age=86400", "accept-ranges": "bytes"}
+    if range_header and range_header.startswith("bytes="):
+        part = range_header[6:].split(",")[0].strip()
+        s_str, _, e_str = part.partition("-")
+        if s_str:
+            start = max(0, min(int(s_str), total - 1))
+        if e_str:
+            end = max(start, min(int(e_str), total - 1))
+        status_code = 206
+        headers["content-range"] = f"bytes {start}-{end}/{total}"
+    length = end - start + 1
+    headers["content-length"] = str(length)
+
+    def file_iterator():
+        with local_file.open("rb") as f:
+            f.seek(start)
+            remaining = length
+            while remaining > 0:
+                chunk = f.read(min(65536, remaining))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+                yield chunk
+
+    return StreamingResponse(file_iterator(), status_code=status_code, media_type="video/mp4", headers=headers)
 
 
 async def _require_exercise(db: AsyncSession, exercise_id: str) -> Exercise:

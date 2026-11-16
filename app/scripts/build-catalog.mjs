@@ -31,7 +31,7 @@ const readCsv=name=>parseCsv(readFileSync(join(sourceDir,name),'utf8'));
 const digest=file=>createHash('sha256').update(readFileSync(file)).digest('hex');
 const cached=new Map();
 if(existsSync(output))for(const e of JSON.parse(readFileSync(output,'utf8')))for(const v of Object.values(e.video.variants??{}))cached.set(v.fileName,v);
-function videoMeta(fileName,videoId,gender) {
+function videoMeta(fileName,videoId,gender,folderPrefix) {
   if(!/^[a-zA-Z0-9_]+\.mp4$/.test(fileName))throw Error(`Invalid video filename ${fileName}`);
   const path=join(videoDir,fileName),sha256=digest(path),old=cached.get(fileName);
   let meta=old?.sha256===sha256?old:null;
@@ -40,7 +40,8 @@ function videoMeta(fileName,videoId,gender) {
     const s=JSON.parse(out).streams[0];
     meta={codec:s.codec_name,width:s.width,height:s.height,durationSeconds:Number(Number(s.duration).toFixed(3))};
   }
-  return {...meta,fileName,objectKey:`exercises/${fileName}`,sha256,sourceVideoId:videoId,gender};
+  const objectKey=`${folderPrefix}/${fileName}`;
+  return {...meta,fileName,objectKey,drivePath:`app-storage/trainow/${objectKey}`,sha256,sourceVideoId:videoId,gender};
 }
 const db=new DatabaseSync(join(sourceDir,'AppDb1'),{readOnly:true});
 const source=db.prepare('SELECT * FROM ExerciseEntity ORDER BY exerciseId').all();
@@ -61,17 +62,18 @@ const catalog=source.map(s=>{
   const c=categories.get(s.exerciseId),muscleRows=muscleQuery.all(s.exerciseId);
   const targetNames=muscleRows.filter(m=>m.isTarget).map(m=>m.muscle).sort().join('|');
   for(const [key,val] of Object.entries({nome:s.name,tipo:s.exerciseType,equipamento:s.equipment,equipamento_secundario:s.secondaryEquipment??'',musculos_alvo:targetNames,male_id:String(s.maleId??''),female_id:String(s.femaleId??'')}))if(c?.[key]!==val)throw Error(`Category mismatch ${s.name}: ${key}`);
+  const {muscles,equipment,target,knowledge}=enrich(s,muscleRows);
+  const isStretch=s.exerciseType==='Stretching';
+  const warm=isStretch||target.startsWith('manguito_rotador_')||/arm circles?|arm swings?/i.test(s.name);
+  const modality=isStretch?'alongamento':warm?'aquecimento':knowledge.exerciseType==='Aerobic'?'aerobico':'forca';
   const variants={};
   for(const r of videos.get(s.exerciseId)??[]) {
     for(const key of ['nome','tipo','equipamento','equipamento_secundario','musculos_alvo'])if(r[key]!==c[key])throw Error(`Video/category mismatch ${s.name}: ${key}`);
     const expected=r.genero_video==='masculino'?s.maleId:s.femaleId;
     if(String(expected)!==r.video_id || variants[r.genero_video])throw Error(`Video ID/duplicate mismatch ${s.name}`);
-    variants[r.genero_video]=videoMeta(r.arquivo_mp4,r.video_id,r.genero_video);
+    variants[r.genero_video]=videoMeta(r.arquivo_mp4,r.video_id,r.genero_video,`${muscles.primary}/${modality}/${r.genero_video}`);
   }
   for(const [g,id] of [['masculino',s.maleId],['feminino',s.femaleId]])if(id&&!variants[g])throw Error(`Missing variant ${s.name}/${g}`);
-  const {muscles,equipment,target,knowledge}=enrich(s,muscleRows);
-  const isStretch=s.exerciseType==='Stretching';
-  const warm=isStretch||target.startsWith('manguito_rotador_')||/arm circles?|arm swings?/i.test(s.name);
   const joints=unique([muscles.primary,...muscles.targets].flatMap(jointsFor));
   const name=translationOverrides[s.name]??translations[s.exerciseId];
   if(typeof name!=='string'||name.length<3||name.length>160)throw Error(`Missing/invalid Portuguese name ${s.exerciseId}`);

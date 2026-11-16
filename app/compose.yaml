@@ -70,14 +70,30 @@ services:
       retries: 20
 
   minio:
-    image: minio/minio:latest
-    command: ["server", "/data", "--console-address", ":9001"]
+    image: rclone/rclone:latest
+    command:
+      - serve
+      - s3
+      - gdrive:app-storage
+      - --addr
+      - :9000
+      - --auth-key
+      - "${MINIO_ACCESS_KEY},${MINIO_SECRET_KEY}"
+      - --vfs-cache-mode
+      - full
+      - --vfs-cache-max-age
+      - 168h
+      - --vfs-cache-max-size
+      - 2G
+      - --dir-cache-time
+      - 24h
     environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
-    volumes: ["minio-data:/data"]
+      RCLONE_CACHE_DIR: /data/cache
+    volumes:
+      - minio-data:/data
+      - /root/.config/rclone:/config/rclone
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ["CMD", "nc", "-z", "localhost", "9000"]
       interval: 5s
       timeout: 3s
       retries: 20

@@ -18,7 +18,9 @@ class Config(BaseSettings):
     MINIO_ENDPOINT: str = "http://localhost:9000"
     MINIO_ACCESS_KEY: str = "minioadmin"
     MINIO_SECRET_KEY: str = "minioadmin-change"
-    MINIO_BUCKET: str = "treinow-videos"
+    MINIO_BUCKET: str = "trainow"
+    GDRIVE_BUCKET: str = "trainow"
+    VIDEO_STORAGE_PROVIDER: Literal["gdrive", "s3"] = "gdrive"
     PLAN_ENGINE: Literal["rules", "gemini"] = "rules"
     GEMINI_API_KEY: str | None = None
     GEMINI_PLAN_MODEL: str = "gemini-3.1-pro-preview"

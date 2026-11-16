@@ -20,7 +20,7 @@ from .workout_engine import PlanGenerationError, generate_plan
 
 CATALOG_PATH = Path("/app/catalog/exercises.pt-BR.json")
 VIDEOS_DIR = Path("/app/videos")
-CATALOG_IMPORT_REVISION = 'catalog-v2-cleanup-1'
+CATALOG_IMPORT_REVISION = 'catalog-v2-gdrive-1'
 
 
 async def import_catalog(ctx) -> dict:
@@ -28,44 +28,47 @@ async def import_catalog(ctx) -> dict:
     if not items or len({i['slug'] for i in items}) != len(items):
         raise ValueError('Empty catalog or duplicate exercise IDs')
     unique_videos = {}
+    check_local = VIDEOS_DIR.is_dir() and config.VIDEO_STORAGE_PROVIDER == "s3"
     for item in items:
         if item.get('classification', {}).get('source') != CATALOG_VERSION:
             raise ValueError('Catalog version mismatch')
         for video in item['video']['variants'].values():
             path = VIDEOS_DIR / video['fileName']
-            if path.parent.resolve() != VIDEOS_DIR.resolve() or not path.is_file():
-                raise ValueError(f"Missing catalog video: {video['fileName']}")
-            if hashlib.sha256(path.read_bytes()).hexdigest() != video['sha256']:
-                raise ValueError(f"Invalid catalog video hash: {video['fileName']}")
+            if check_local:
+                if path.parent.resolve() != VIDEOS_DIR.resolve() or not path.is_file():
+                    raise ValueError(f"Missing catalog video: {video['fileName']}")
+                if hashlib.sha256(path.read_bytes()).hexdigest() != video['sha256']:
+                    raise ValueError(f"Invalid catalog video hash: {video['fileName']}")
             unique_videos[video['objectKey']] = (path, video)
     imported = 0
     async with AsyncSessionLocal() as db:
-        async with s3_client() as s3:
-            # Validate/upload the whole collection before activating any database row.
-            for object_key, (path, video) in unique_videos.items():
-                upload = False
-                try:
-                    obj = await s3.head_object(Bucket=config.MINIO_BUCKET, Key=object_key)
-                    upload = obj['ContentLength'] != path.stat().st_size
-                except ClientError as error:
-                    if error.response['Error']['Code'] not in ('404', 'NoSuchKey', 'NotFound'):
-                        raise
-                    upload = True
-                if upload:
-                    await s3.upload_file(str(path), config.MINIO_BUCKET, object_key, ExtraArgs={'ContentType':'video/mp4','Metadata':{'sha256':video['sha256']}})
-                    obj = await s3.head_object(Bucket=config.MINIO_BUCKET, Key=object_key)
-                    if obj['ContentLength'] != path.stat().st_size:
-                        raise ValueError(f'Incomplete upload: {object_key}')
-            for item in items:
-                values = _exercise_values(item)
-                stmt = pg_insert(Exercise).values(**values, slug=item["slug"])
-                update_values = {**values, "updated_at": datetime.now(timezone.utc)}
-                stmt = stmt.on_conflict_do_update(index_elements=["slug"], set_=update_values)
-                await db.execute(stmt)
-                imported += 1
-            # Authorized test-data cleanup: remove only the legacy catalog and its dependencies.
-            removed, affected_students = await _purge_legacy(db, {i['slug'] for i in items})
-            await db.commit()
+        if config.VIDEO_STORAGE_PROVIDER == "s3":
+            async with s3_client() as s3:
+                # Validate/upload the whole collection before activating any database row.
+                for object_key, (path, video) in unique_videos.items():
+                    upload = False
+                    try:
+                        obj = await s3.head_object(Bucket=config.MINIO_BUCKET, Key=object_key)
+                        upload = obj['ContentLength'] != path.stat().st_size
+                    except ClientError as error:
+                        if error.response['Error']['Code'] not in ('404', 'NoSuchKey', 'NotFound'):
+                            raise
+                        upload = True
+                    if upload:
+                        await s3.upload_file(str(path), config.MINIO_BUCKET, object_key, ExtraArgs={'ContentType':'video/mp4','Metadata':{'sha256':video['sha256']}})
+                        obj = await s3.head_object(Bucket=config.MINIO_BUCKET, Key=object_key)
+                        if obj['ContentLength'] != path.stat().st_size:
+                            raise ValueError(f'Incomplete upload: {object_key}')
+        for item in items:
+            values = _exercise_values(item)
+            stmt = pg_insert(Exercise).values(**values, slug=item["slug"])
+            update_values = {**values, "updated_at": datetime.now(timezone.utc)}
+            stmt = stmt.on_conflict_do_update(index_elements=["slug"], set_=update_values)
+            await db.execute(stmt)
+            imported += 1
+        # Authorized test-data cleanup: remove only the legacy catalog and its dependencies.
+        removed, affected_students = await _purge_legacy(db, {i['slug'] for i in items})
+        await db.commit()
         active = (await db.execute(select(func.count()).select_from(Exercise).where(active_catalog()))).scalar_one()
         retired = (await db.execute(select(func.count()).select_from(Exercise).where(Exercise.is_active.is_(False)))).scalar_one()
         active_students = select(WorkoutPlan.student_id).where(WorkoutPlan.active.is_(True))
@@ -76,7 +79,7 @@ async def import_catalog(ctx) -> dict:
         await ctx['redis'].enqueue_job('generate_workout', str(student_id), _job_id=f'catalog-plan-v2:{student_id}')
     for student_id in affected_students:
         await ctx['redis'].enqueue_job('refresh_analytics', str(student_id))
-    stale_videos = await _purge_stale_videos(unique_videos)
+    stale_videos = await _purge_stale_videos(unique_videos) if config.VIDEO_STORAGE_PROVIDER == "s3" else 0
     result = {'imported':imported,'active':active,'retired':retired,'verifiedVideos':len(unique_videos),'deletedVideoObjects':stale_videos,**removed,'plansQueued':len(pending),'catalogVersion':CATALOG_VERSION}
     print('catalog_import ' + ' '.join(f'{key}={value}' for key, value in result.items()))
     return result
