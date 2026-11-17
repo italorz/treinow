@@ -9,7 +9,7 @@ h1,h2,h3,p,strong{overflow-wrap:anywhere}
 .app-shell.student-shell,.app-shell.trainer-shell{width:100%;max-width:none;box-shadow:none;overflow:visible;background:#f5f7f5;padding-bottom:0}
 .app-shell>header,.student-shell>header{height:76px;padding:0 max(24px,calc((100% - 1120px)/2));background:#ffffffed;backdrop-filter:blur(16px);border-bottom:1px solid var(--line)}
 .brand{font-size:23px;gap:12px}.brand-mark{border-radius:8px;width:36px;height:36px;background:#21734f;color:#fff}
-.account-summary{display:flex;align-items:center;gap:12px;min-width:0;max-width:48%}.account-name{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.avatar{flex-shrink:0;background:#e4efe7;color:#21734f}
+.account-summary{display:flex;align-items:center;gap:12px;min-width:0;max-width:48%}.account-name{max-width:160px;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.avatar{flex-shrink:0;background:#e4efe7;color:#21734f}
 .skip-link{position:fixed;top:-100px;left:16px;background:#fff;z-index:100;padding:12px;color:var(--ink)}.skip-link:focus{top:12px}
 .app-shell main,.student-shell main{width:100%;overflow:visible;outline:none}
 .page,.student-shell .page{width:min(1120px,100%);padding:38px 24px 56px}
