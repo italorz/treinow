@@ -4,3 +4,8 @@ node_modules
 **/dist
 .env
 coverage
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/*.test
+apps/api-go/trainow

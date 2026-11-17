@@ -1,0 +1,85 @@
+{
+  "REGION_MUSCLES": {
+    "ombro": [
+      "costas",
+      "ombro",
+      "peitoral",
+      "trapezio"
+    ],
+    "cotovelo": [
+      "antebraco",
+      "biceps",
+      "costas",
+      "peitoral",
+      "triceps"
+    ],
+    "punho": [
+      "antebraco",
+      "biceps",
+      "costas",
+      "peitoral",
+      "triceps"
+    ],
+    "coluna_cervical": [
+      "ombro",
+      "trapezio"
+    ],
+    "coluna_lombar": [
+      "core",
+      "costas",
+      "gluteos"
+    ],
+    "quadril": [
+      "gluteos",
+      "pernas"
+    ],
+    "joelho": [
+      "gluteos",
+      "pernas"
+    ],
+    "tornozelo": [
+      "panturrilha",
+      "pernas"
+    ]
+  },
+  "REGION_STRETCH_MUSCLES": {
+    "ombro": [
+      "ombro"
+    ],
+    "cotovelo": [
+      "antebraco",
+      "biceps",
+      "triceps"
+    ],
+    "punho": [
+      "antebraco"
+    ],
+    "coluna_cervical": [
+      "trapezio"
+    ],
+    "coluna_lombar": [
+      "core",
+      "costas"
+    ],
+    "quadril": [
+      "gluteos",
+      "pernas"
+    ],
+    "joelho": [
+      "pernas"
+    ],
+    "tornozelo": [
+      "panturrilha"
+    ]
+  },
+  "REGION_LABELS": {
+    "ombro": "ombro",
+    "cotovelo": "cotovelo",
+    "punho": "punho",
+    "coluna_cervical": "coluna cervical",
+    "coluna_lombar": "coluna lombar",
+    "quadril": "quadril",
+    "joelho": "joelho",
+    "tornozelo": "tornozelo"
+  }
+}

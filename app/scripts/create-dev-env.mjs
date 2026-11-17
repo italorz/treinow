@@ -13,7 +13,7 @@ const postgresPassword = secret();
 const values = {
   NODE_ENV: "development",
   PUBLIC_URL: "http://localhost:8080",
-  DATABASE_URL: `postgresql+asyncpg://treinow:${postgresPassword}@postgres:5432/treinow`,
+  DATABASE_URL: `postgresql://treinow:${postgresPassword}@postgres:5432/treinow`,
   POSTGRES_DB: "treinow",
   POSTGRES_USER: "treinow",
   POSTGRES_PASSWORD: postgresPassword,

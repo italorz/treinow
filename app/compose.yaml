@@ -14,8 +14,8 @@ services:
   api:
     build:
       context: .
-      dockerfile: apps/api/Dockerfile
-    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 3000"]
+      dockerfile: apps/api-go/Dockerfile
+    command: ["api"]
     env_file: .env
     environment:
       PORT: "3000"
@@ -24,7 +24,7 @@ services:
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:3000/health')"]
+      test: ["CMD", "/app/trainow", "healthcheck"]
       interval: 10s
       timeout: 3s
       retries: 10
@@ -35,8 +35,8 @@ services:
   worker:
     build:
       context: .
-      dockerfile: apps/api/Dockerfile
-    command: ["arq", "app.worker.WorkerSettings"]
+      dockerfile: apps/api-go/Dockerfile
+    command: ["worker"]
     env_file: .env
     depends_on:
       api: { condition: service_healthy }

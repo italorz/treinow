@@ -6,13 +6,14 @@
   "scripts": {
     "build": "npm run build -w @treinow/contracts && npm run build -w @treinow/web",
     "test": "npm run test -w @treinow/web",
-    "test:api": "cd apps/api && uv run pytest",
+    "build:api": "cd apps/api-go && go build ./cmd/trainow",
+    "test:api": "cd apps/api-go && go test ./...",
     "catalog": "node scripts/build-catalog.mjs",
     "catalog:verify": "node scripts/verify-catalog.mjs",
     "catalog:test": "node --test scripts/catalog-relations.test.mjs",
     "setup": "node scripts/create-dev-env.mjs && npm run catalog",
-    "dev:api": "cd apps/api && uv run uvicorn app.main:app --reload",
-    "dev:worker": "cd apps/api && uv run arq app.worker.WorkerSettings",
+    "dev:api": "cd apps/api-go && go run ./cmd/trainow api",
+    "dev:worker": "cd apps/api-go && go run ./cmd/trainow worker",
     "dev:web": "npm run dev -w @treinow/web"
   },
   "engines": { "node": ">=22" }
