@@ -18,7 +18,7 @@ type Guidance = {
 
 export function ExerciseGuidance({ guidance, executionGuide, id }: { guidance?: Guidance; executionGuide?: ExecutionGuide | null; id: string }) {
   if (executionGuide) return <div className="exercise-guidance">
-    {executionGuide.hasNarration && <NarrationPlayer key={id} id={id}/>}
+    {executionGuide.hasNarration && <NarrationPlayer key={id} id={id} text={executionGuide.narracao}/>}
     <h4>Como executar</h4>
     <ol>{executionGuide.execucao.map((step, i) => <li key={i}>{step}</li>)}</ol>
     <h4>Como evitar lesões</h4>

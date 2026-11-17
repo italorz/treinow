@@ -84,9 +84,8 @@ def execution_guide(exercise: Exercise | None) -> dict | None:
     guidance = getattr(exercise, "guidance", None)
     if guidance is None:
         return None
-    narration = guidance.get("narration") or {}
     return {
         **{key: guidance.get(key) for key in ("execucao", "evitarLesoes", "cargaExcessiva", "narracao")},
         "disclaimer": GUIDANCE_DISCLAIMER,
-        "hasNarration": bool(narration.get("audioKey") and narration.get("subtitlesKey")),
+        "hasNarration": bool(guidance.get("narracao")),
     }
