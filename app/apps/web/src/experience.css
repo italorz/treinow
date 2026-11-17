@@ -37,3 +37,58 @@ h1,h2,h3,p,strong{overflow-wrap:anywhere}
 @media(max-width:380px){.today-card{display:grid;grid-template-columns:48px minmax(0,1fr) 36px;gap:8px;padding:14px 10px}.today-card .video-placeholder{width:48px;height:64px}.today-card>.check{width:36px;height:36px}.today-card h3{font-size:14px}.page-title h1{font-size:23px}.choice-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.day-picker button{width:36px;height:40px}.invite-row{grid-template-columns:1fr}.account-summary{max-width:36px}.today-date{font-size:11px}}
 .narration-actions button{display:inline-flex;align-items:center;justify-content:center;gap:6px}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+/* Only the exercise heading uses columns; all reading spans the full item. */
+.today-card,.cal-row{display:block;padding:24px;min-width:0}
+.exercise-heading{display:grid;grid-template-columns:72px minmax(0,1fr) auto;align-items:center;gap:16px;min-width:0}
+.exercise-heading-copy{display:flex;flex-direction:column;align-items:flex-start;gap:5px;min-width:0}
+.exercise-heading-copy h3,.exercise-heading-copy strong{font-size:17px;line-height:1.45;margin:0;word-break:normal;overflow-wrap:break-word}
+.exercise-heading .video-placeholder,.exercise-heading .reserve-video,.exercise-heading .reco-video{width:72px;height:88px;border-radius:6px}
+.exercise-heading .check{margin:0;width:44px;height:44px}
+.exercise-heading-copy .equipment-label{font-size:12px;line-height:1.5}
+.today-card .exercise-prescription,.cal-row .exercise-prescription{margin:16px 0!important;padding-bottom:16px;border-bottom:1px solid var(--line);gap:6px 16px}
+.today-card .exercise-prescription span,.cal-row .exercise-prescription span{font-size:13px}
+.exercise-guidance{width:100%;max-width:none;margin:0;font-size:16px;line-height:1.75;overflow-wrap:break-word}
+.disclosure{width:100%;min-width:0;border-bottom:1px solid var(--line)}
+.disclosure:last-child{border-bottom:0}
+.disclosure-toggle{display:flex;align-items:center;gap:10px;width:100%;min-height:54px;text-align:left;border:0;background:transparent;color:var(--ink);padding:13px 0;font-size:14px;font-weight:700;line-height:1.5}
+.disclosure-toggle>span:first-child{flex:1;min-width:0;word-break:normal;overflow-wrap:break-word}
+.disclosure-toggle>svg{flex:0 0 18px;color:var(--muted);transition:transform .18s ease}
+.disclosure.is-open>.disclosure-toggle>svg{transform:rotate(180deg)}
+.disclosure-toggle:hover{color:var(--green)}
+.disclosure-toggle:focus-visible{outline-offset:0;border-radius:4px}
+.disclosure-count{display:grid;place-items:center;min-width:24px;height:24px;border-radius:4px;padding:0 6px;background:#e6efe7;font-size:12px;color:var(--green)}
+.disclosure-content{padding:4px 0 20px;min-width:0}
+.disclosure-content p,.today-card .disclosure-content p,.exercise-guidance .disclosure-content p{font-size:16px;line-height:1.75;margin:12px 0;max-width:70ch;word-break:normal;overflow-wrap:break-word}
+.disclosure-content ol,.disclosure-content ul{padding-left:24px;margin:14px 0;max-width:70ch}
+.disclosure-content li{font-size:16px;line-height:1.75;padding-left:3px;word-break:normal;overflow-wrap:break-word}
+.disclosure-content li+li{margin-top:12px}
+.disclosure-content .guidance-stop{border-left:3px solid #bc3544;padding-left:12px;color:#8b2833}
+.exercise-alternative{min-width:0;padding:20px 0;border-top:1px solid var(--line)}
+.exercise-alternative:first-child{border-top:0;padding-top:4px}
+.exercise-alternative:last-child{padding-bottom:0}
+.exercise-alternative>.exercise-guidance{margin-top:12px}
+.exercise-alternative .exercise-heading{grid-template-columns:64px minmax(0,1fr) auto;gap:12px}
+.exercise-alternative .reserve-video{width:64px;height:80px}
+.exercise-alternative .exercise-heading-copy strong{font-size:15px}
+.exercise-alternative .familiar-note{font-size:12px}
+.disclosure-content .narration-player{margin:0 0 16px}
+.disclosure-content .narration-actions{display:flex;flex-wrap:wrap;gap:8px}
+.disclosure-content .narration-actions button{min-height:44px;font-size:14px;padding:10px 14px;white-space:nowrap;overflow-wrap:normal;word-break:normal;flex-shrink:0}
+.disclosure-content .narration-actions button svg{flex-shrink:0}
+.workout-preparation{border:0;padding:0;margin:0 0 20px}
+.workout-preparation .disclosure{border-bottom:1px solid var(--line)}
+.cal-row{padding:20px 0}
+.cal-row .cal-name{font-size:16px}
+@media(max-width:760px){
+  .today-card{padding:18px 16px}
+  .exercise-heading{grid-template-columns:64px minmax(0,1fr) auto;gap:12px}
+  .exercise-heading .video-placeholder{width:64px;height:80px}
+  .exercise-heading-copy h3{font-size:16px}
+}
+@media(max-width:380px){
+  .today-card{padding:16px 14px}
+  .exercise-heading,.exercise-alternative .exercise-heading{grid-template-columns:56px minmax(0,1fr) auto;gap:10px}
+  .exercise-heading .video-placeholder,.exercise-alternative .reserve-video{width:56px;height:72px}
+  .exercise-heading .check{width:40px;height:40px}
+}

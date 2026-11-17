@@ -4,7 +4,8 @@ import { Check, CheckCircle2, Play, RotateCw, Square, X } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
-import { EquipmentIcon } from "../equipment";
+import { Disclosure } from "../disclosure";
+import { ExerciseAlternative } from "../exercise-alternative";
 import { ExerciseVideo } from "../video";
 import { WorkoutPreparation } from "../preparation";
 import { ExerciseGuidance } from "../exercise-guidance";
@@ -63,12 +64,21 @@ export function TodayPage() {
 }
 
 function TodayExercise({ exercise, index, active, saving, selectedId, onChoose }: any) {
-  const [showReserves, setShowReserves] = useState(false); const selected = selectedId === exercise.id;
-  return <ExerciseMedia><article className={`today-card ${selectedId ? "is-complete" : ""}`}><span className="exercise-number">{String(index+1).padStart(2,"0")}</span><ExerciseVideo id={exercise.id} eager className="video-placeholder"/><div className="grow">
-    <span className={`tag ${exercise.phase === "aquecimento" ? "warm" : exercise.phase === "alongamento" ? "stretch" : "main"}`}>{exercise.phase === "principal" ? "Treino principal" : exercise.phase}</span>
-    <h3>{exercise.name}</h3><p className="exercise-prescription"><span>{exercise.sets} séries</span><span>{exercise.reps} reps</span><span>{exercise.restSeconds}s descanso</span></p>
+  const selected = selectedId === exercise.id;
+  return <ExerciseMedia><article className={`today-card ${selectedId ? "is-complete" : ""}`}>
+    <div className="exercise-heading">
+      <ExerciseVideo id={exercise.id} eager className="video-placeholder"/>
+      <div className="exercise-heading-copy">
+        <span className={`tag ${exercise.phase === "aquecimento" ? "warm" : exercise.phase === "alongamento" ? "stretch" : "main"}`}>{exercise.phase === "principal" ? "Treino principal" : exercise.phase}</span>
+        <h3>{String(index + 1).padStart(2, "0")} · {exercise.name}</h3>
+      </div>
+      {active && <button type="button" disabled={saving} className={`check ${selected ? "selected" : ""}`} aria-pressed={selected} aria-label={`Concluir ${exercise.name}`} onClick={()=>onChoose(exercise.id,exercise.id)}>{selected && <Check size={18}/>}</button>}
+    </div>
+    <p className="exercise-prescription"><span>{exercise.sets} séries</span><span>{exercise.reps} reps</span><span>{exercise.restSeconds}s descanso</span></p>
     <ExerciseGuidance id={exercise.id} guidance={exercise.guidance} executionGuide={exercise.executionGuide}/>
-    {!!exercise.reserves?.length && <details className="reserves" onToggle={e=>{if(e.target === e.currentTarget) setShowReserves(e.currentTarget.open);}}><summary>Alternativas sem depender do aparelho</summary>{showReserves && exercise.reserves.map((reserve:any)=><ExerciseMedia key={reserve.id}><div className={`reserve-row ${reserve.familiar ? "familiar" : ""}`}><ExerciseVideo id={reserve.id} eager={false} className="reserve-video"/><div><strong>{reserve.name}</strong>{reserve.familiar && <span className="familiar-note">Você já sabe fazer este</span>}<EquipmentIcon equipment={reserve.equipment} name={reserve.name}/><ExerciseGuidance id={reserve.id} guidance={reserve.guidance} executionGuide={reserve.executionGuide}/></div>{active && <button className={`check ${selectedId === reserve.id ? "selected" : ""}`} aria-label={`Concluir ${reserve.name}`} onClick={()=>onChoose(exercise.id,reserve.id)}>{selectedId === reserve.id && <Check size={16}/>}</button>}</div></ExerciseMedia>)}</details>}
-  </div>{active && <button disabled={saving} className={`check ${selected ? "selected" : ""}`} aria-pressed={selected} aria-label={`Concluir ${exercise.name}`} onClick={()=>onChoose(exercise.id,exercise.id)}>{selected && <Check size={18}/>}</button>}</article></ExerciseMedia>;
+    {!!exercise.reserves?.length && <Disclosure title="Alternativas" count={exercise.reserves.length}>
+      {exercise.reserves.map((reserve:any)=><ExerciseAlternative key={reserve.id} exercise={reserve} active={active} selected={selectedId === reserve.id} disabled={saving} onChoose={()=>onChoose(exercise.id,reserve.id)}/>)}
+    </Disclosure>}
+  </article></ExerciseMedia>;
 }
 function ConfirmModal({ title, onClose, children }: any) { return <div className="modal-backdrop"><div className="modal confirm-modal" role="dialog" aria-modal="true"><button className="modal-close" onClick={onClose} aria-label="Fechar"><X size={20}/></button><div className="modal-body"><h2>{title}</h2>{children}</div></div></div>; }

@@ -9,7 +9,7 @@ export function ExerciseMedia({ children }: { children: ReactNode }) {
 }
 export const useExerciseMedia = () => useContext(VideoContext);
 
-export function NarrationPlayer({ text }: { text: string }) {
+export function NarrationPlayer({ text, compact = false }: { text: string; compact?: boolean }) {
   const video = useExerciseMedia();
   const browser = useRef<ReturnType<typeof browserSpeech> | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -50,8 +50,8 @@ export function NarrationPlayer({ text }: { text: string }) {
   return <div className="narration-player">
     <div className="narration-actions">
       <button type="button" onClick={() => playing ? pause() : play()}>{playing ? <Pause size={15}/> : <Play size={15}/>} {playing ? "Pausar" : "Ouvir orientação"}</button>
-      <button type="button" onClick={stop} aria-label="Parar orientação" title="Parar orientação"><Square size={15}/></button>
-      <button type="button" aria-expanded={showText} onClick={() => setShowText(value => !value)}><FileText size={15}/> {showText ? "Ocultar texto" : "Ler orientação"}</button>
+      {(!compact || playing || active >= 0) && <button type="button" onClick={stop} aria-label="Parar orientação" title="Parar orientação"><Square size={15}/></button>}
+      {!compact && <button type="button" aria-expanded={showText} onClick={() => setShowText(value => !value)}><FileText size={15}/> {showText ? "Ocultar texto" : "Ler orientação"}</button>}
     </div>
     {showText && <div className="narration-script" aria-label="Texto da orientação">{lines.map((line, index) =>
       <p key={index} className={`${line.pause === 800 ? "narration-block " : ""}${active === index ? "narration-active" : ""}`} aria-current={active === index ? "true" : undefined}>{line.text}</p>)}</div>}
