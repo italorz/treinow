@@ -66,10 +66,12 @@ export function ExercisesPage() {
       </button>)}</div>
       <p>Toque em um grupo muscular para filtrar</p>
     </div>
-    <label className="search"><Search size={19}/><input type="search" placeholder="Nome, halter, barra, cabo..." value={search} onChange={e => setSearch(e.target.value)}/></label>
+    <label className="search"><Search size={19}/><input type="search" aria-label="Buscar exercícios" placeholder="Buscar exercício ou equipamento" value={search} onChange={e => setSearch(e.target.value)}/></label>
     <select className="exercise-type-filter" aria-label="Categoria do exercício" value={exerciseType} onChange={e => setExerciseType(e.target.value)}><option value="">Todas as categorias</option><option value="Strength">Força</option><option value="Stretching">Alongamento</option><option value="warmup">Aquecimento</option><option value="Aerobic">Aeróbico</option></select>
     {(muscle || search) && <div className="filter-note">{muscle || `Resultados para “${search}”`}<button onClick={() => {setMuscle(""); setSearch("");}}>Limpar</button></div>}
     <div className="library-grid">{items.map((e: any) => <ExerciseCard key={e.id} exercise={e} onOpen={() => setSelected(e)}/>)}</div>
+    {query.isError && <div className="empty" role="alert"><h2>Não foi possível carregar os exercícios</h2><button type="button" className="primary" onClick={() => void query.refetch()}>Tentar novamente</button></div>}
+    {query.isSuccess && !items.length && <div className="empty"><h2>Nenhum exercício encontrado</h2><button type="button" className="primary" onClick={() => { setMuscle(""); setSearch(""); setExerciseType(""); }}>Limpar filtros</button></div>}
     {query.isLoading && <div className="skeleton tall"/>}<div ref={sentinel}/>{!query.hasNextPage && items.length > 0 && <p className="end">Você viu todos os exercícios.</p>}
     {selected && <ExerciseModal exercise={selected} onClose={() => setSelected(null)}/>}
   </section>;

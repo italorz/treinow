@@ -11,6 +11,7 @@ import { MetaPage } from "./pages/Meta";
 import { TrainerPage } from "./pages/Trainer";
 import { InvitePage } from "./pages/Invite";
 import "./styles.css";
+import "./experience.css";
 
 const router = createBrowserRouter([
   { path: "/login", element: <AuthPage /> },

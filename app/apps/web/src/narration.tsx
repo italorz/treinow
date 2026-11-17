@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { browserSpeech, parseScript } from "./speech";
+import { Pause, Play, Square, FileText } from "lucide-react";
 
 const VideoContext = createContext<{ startVideo?: () => Promise<void> } | null>(null);
 export function ExerciseMedia({ children }: { children: ReactNode }) {
@@ -14,7 +15,7 @@ export function NarrationPlayer({ text }: { text: string }) {
   const [playing, setPlaying] = useState(false);
   const [error, setError] = useState("");
   const [active, setActive] = useState(-1);
-  const [showText, setShowText] = useState(true);
+  const [showText, setShowText] = useState(false);
   const scriptRef = useRef(text);
   scriptRef.current = text;
   const lines = parseScript(text);
@@ -48,9 +49,9 @@ export function NarrationPlayer({ text }: { text: string }) {
   function pause() { browser.current?.pause(); setPlaying(false); }
   return <div className="narration-player">
     <div className="narration-actions">
-      <button type="button" onClick={() => playing ? pause() : play()}>{playing ? "Pausar" : "Ouvir orientação do instrutor"}</button>
-      <button type="button" onClick={stop}>Parar</button>
-      <button type="button" aria-pressed={showText} onClick={() => setShowText(value => !value)}>Mostrar texto</button>
+      <button type="button" onClick={() => playing ? pause() : play()}>{playing ? <Pause size={15}/> : <Play size={15}/>} {playing ? "Pausar" : "Ouvir orientação"}</button>
+      <button type="button" onClick={stop} aria-label="Parar orientação" title="Parar orientação"><Square size={15}/></button>
+      <button type="button" aria-expanded={showText} onClick={() => setShowText(value => !value)}><FileText size={15}/> {showText ? "Ocultar texto" : "Ler orientação"}</button>
     </div>
     {showText && <div className="narration-script" aria-label="Texto da orientação">{lines.map((line, index) =>
       <p key={index} className={`${line.pause === 800 ? "narration-block " : ""}${active === index ? "narration-active" : ""}`} aria-current={active === index ? "true" : undefined}>{line.text}</p>)}</div>}
