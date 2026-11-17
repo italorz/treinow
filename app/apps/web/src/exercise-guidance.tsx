@@ -1,4 +1,5 @@
 import { NarrationPlayer } from "./narration";
+import { spokenScript } from "./speech";
 
 export type ExecutionGuide = {
   execucao: string[]; evitarLesoes: string[];
@@ -6,7 +7,7 @@ export type ExecutionGuide = {
   narracao: string; disclaimer: string; hasNarration: boolean;
 };
 
-type Guidance = {
+export type Guidance = {
   description: string;
   steps: string[];
   commonMistake: string;
@@ -17,8 +18,9 @@ type Guidance = {
 };
 
 export function ExerciseGuidance({ guidance, executionGuide, id }: { guidance?: Guidance; executionGuide?: ExecutionGuide | null; id: string }) {
+  const text = spokenScript(executionGuide, guidance);
   if (executionGuide) return <div className="exercise-guidance">
-    {executionGuide.hasNarration && <NarrationPlayer key={id} id={id} text={executionGuide.narracao}/>}
+    {text && <NarrationPlayer key={id} text={text}/>}
     <h4>Como executar</h4>
     <ol>{executionGuide.execucao.map((step, i) => <li key={i}>{step}</li>)}</ol>
     <h4>Como evitar lesões</h4>
@@ -31,6 +33,7 @@ export function ExerciseGuidance({ guidance, executionGuide, id }: { guidance?: 
   </div>;
   if (!guidance) return null;
   return <div className="exercise-guidance">
+    {text && <NarrationPlayer key={id} text={text}/>}
     <p className="guidance-description">{guidance.description}</p>
     <details>
       <summary>Como executar</summary>

@@ -19,7 +19,6 @@ services:
     env_file: .env
     environment:
       PORT: "3000"
-    volumes: ["tts-cache:/data/tts-cache"]
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -38,7 +37,6 @@ services:
       context: .
       dockerfile: apps/api/Dockerfile
     command: ["arq", "app.worker.WorkerSettings"]
-    volumes: ["tts-cache:/data/tts-cache"]
     env_file: .env
     depends_on:
       api: { condition: service_healthy }
@@ -104,4 +102,3 @@ volumes:
   postgres-data:
   redis-data:
   minio-data:
-  tts-cache:

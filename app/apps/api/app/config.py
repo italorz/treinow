@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,11 +20,6 @@ class Config(BaseSettings):
     MINIO_SECRET_KEY: str = "minioadmin-change"
     MINIO_BUCKET: str = "trainow"
     GDRIVE_BUCKET: str = "trainow"
-    TTS_MODELS_DIR: str = "/app/models/kokoro-int8-multi-lang-v1_0"
-    TTS_VOICE: str = "pm_alex"
-    TTS_CACHE_DIR: str = "/data/tts-cache"
-    TTS_ENABLED: bool = True
-    TTS_SPEED: float = Field(default=0.95, gt=0, le=3)
     VIDEO_STORAGE_PROVIDER: Literal["gdrive", "s3"] = "gdrive"
     PLAN_ENGINE: Literal["rules", "gemini"] = "rules"
     GEMINI_API_KEY: str | None = None

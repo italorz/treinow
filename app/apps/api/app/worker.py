@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from arq import cron, func as arq_function
+from arq import cron
 from arq.connections import RedisSettings
 from sqlalchemy import select, delete, func, or_
 from botocore.exceptions import ClientError
@@ -16,7 +16,6 @@ from .catalog import CATALOG_VERSION, PLAN_CATALOG_TAG, active_catalog
 from .db import AsyncSessionLocal, s3_client
 from .models import AnalyticsSnapshot, Exercise, Measurement, Profile, WorkoutLog, WorkoutPlan, WorkoutSession
 from .plan import normalized_name
-from .speech import cached_speech, get_speech
 from .workout_engine import PlanGenerationError, generate_plan
 
 CATALOG_PATH = Path("/app/catalog/exercises.pt-BR.json")
@@ -247,52 +246,6 @@ async def rotate_weekly_plans(ctx) -> dict:
     return {"queued": len(due_ids)}
 
 
-async def warm_speech(ctx, exercise_id: str) -> dict:
-    if not config.TTS_ENABLED:
-        return {"status": "disabled"}
-    async with AsyncSessionLocal() as db:
-        exercise = (await db.execute(select(Exercise).where(
-            Exercise.id == uuid.UUID(exercise_id), active_catalog()))).scalar_one_or_none()
-        text = (exercise.guidance or {}).get("narracao", "") if exercise else ""
-    if not text.strip():
-        return {"status": "missing"}
-    await get_speech(text)
-    return {"status": "ready"}
-
-
-def _planned_exercise_ids(value):
-    if isinstance(value, dict):
-        for key, item in value.items():
-            if key == "exerciseId":
-                yield item
-            elif key == "reserveExerciseIds":
-                yield from item
-            else:
-                yield from _planned_exercise_ids(item)
-    elif isinstance(value, list):
-        for item in value:
-            yield from _planned_exercise_ids(item)
-
-
-async def warm_planned_speech(ctx) -> dict:
-    if not config.TTS_ENABLED:
-        return {"warmed": 0}
-    async with AsyncSessionLocal() as db:
-        days = (await db.execute(select(WorkoutPlan.days).where(WorkoutPlan.active.is_(True)))).scalars().all()
-        ids = {uuid.UUID(item) for plan in days for item in _planned_exercise_ids(plan)}
-        exercises = (await db.execute(select(Exercise).where(Exercise.id.in_(ids), active_catalog()).order_by(Exercise.id))).scalars().all()
-    warmed = 0
-    for exercise in exercises:
-        text = (exercise.guidance or {}).get("narracao", "")
-        if not text.strip() or await cached_speech(text) is not None:
-            continue
-        await get_speech(text)
-        warmed += 1
-        if warmed >= 20:
-            break
-    return {"warmed": warmed}
-
-
 async def _startup(ctx) -> None:
     # ctx["redis"] já é o pool arq do próprio worker (arq injeta antes de
     # chamar on_startup); só usamos para enfileirar a importação inicial.
@@ -303,8 +256,8 @@ async def _startup(ctx) -> None:
 
 
 class WorkerSettings:
-    functions = [import_catalog, generate_workout, refresh_analytics, send_invitation, rotate_weekly_plans, arq_function(warm_speech, keep_result=0)]
-    cron_jobs = [cron(rotate_weekly_plans, hour=3, minute=15), cron(warm_planned_speech, minute={0, 30}, timeout=3600)]
+    functions = [import_catalog, generate_workout, refresh_analytics, send_invitation, rotate_weekly_plans]
+    cron_jobs = [cron(rotate_weekly_plans, hour=3, minute=15)]
     redis_settings = RedisSettings.from_dsn(config.REDIS_URL)
     on_startup = _startup
     max_jobs = 6

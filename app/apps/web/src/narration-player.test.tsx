@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { NarrationPlayer } from "./narration";
 import { api } from "./api";
@@ -10,32 +10,29 @@ beforeEach(() => {
   utterances = [];
   vi.stubGlobal("SpeechSynthesisUtterance", class { text: string; constructor(text: string) { this.text = text; } });
   Object.defineProperty(window, "speechSynthesis", { configurable: true, value: {
-    speak: vi.fn(u => { utterances.push(u); u.onstart?.({}); }), cancel: vi.fn(), resume: vi.fn(), pause: vi.fn(), getVoices: () => [],
+    speak: vi.fn((utterance: SpeechSynthesisUtterance) => { utterances.push(utterance); utterance.onstart?.({} as SpeechSynthesisEvent); }),
+    cancel: vi.fn(), resume: vi.fn(), pause: vi.fn(),
+    getVoices: () => [{ lang: "pt-BR", name: "Google português do Brasil" }],
   } });
-  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
-  vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); request.mockReset(); });
-it("speaks immediately on preparing, highlights the line, and uses ready audio on the next click without polling", async () => {
-  request.mockResolvedValueOnce({ status: "preparing", text: "Respire.", lines: [{ text: "Respire.", pause: 0 }] })
-    .mockResolvedValueOnce({ status: "ready", text: "Respire.", audioUrl: "/audio.mp3", cues: [], durationSeconds: 1 });
-  render(<NarrationPlayer id="one" text="Respire."/>);
+it("speaks with the browser voice, highlights the line, and never calls the speech API", () => {
+  render(<NarrationPlayer text="Respire."/>);
   fireEvent.click(screen.getByText("Ouvir orientação do instrutor"));
-  await waitFor(() => expect(utterances).toHaveLength(1));
-  expect(utterances[0].lang).toBe("pt-BR");
-  expect(screen.getByText("Respire.").getAttribute("aria-current")).toBe("true");
-  expect(screen.getByRole("status").textContent).toContain("Usando a voz do navegador");
-  act(() => utterances[0].onend?.({} as SpeechSynthesisEvent));
-  expect(request).toHaveBeenCalledTimes(1);
-  fireEvent.click(screen.getByText("Ouvir orientação do instrutor"));
-  await waitFor(() => expect(HTMLMediaElement.prototype.play).toHaveBeenCalledOnce());
-  expect(screen.queryByRole("status")).toBeNull();
   expect(utterances).toHaveLength(1);
+  expect(utterances[0].lang).toBe("pt-BR");
+  expect(utterances[0].voice).toEqual({ lang: "pt-BR", name: "Google português do Brasil" });
+  expect(screen.getByText("Respire.").getAttribute("aria-current")).toBe("true");
+  expect(screen.queryByRole("status")).toBeNull();
+  expect(request).not.toHaveBeenCalled();
 });
-it("falls back to browser speech when the endpoint fails", async () => {
-  request.mockRejectedValueOnce(new Error("unavailable"));
-  render(<NarrationPlayer id="one" text="Respire."/>);
+it("pauses and resumes the same browser utterance without fetching audio", () => {
+  render(<NarrationPlayer text="Respire."/>);
   fireEvent.click(screen.getByText("Ouvir orientação do instrutor"));
-  await waitFor(() => expect(utterances).toHaveLength(1));
-  expect(screen.getByRole("status").textContent).toContain("Usando a voz do navegador");
+  fireEvent.click(screen.getByText("Pausar"));
+  expect(window.speechSynthesis.pause).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByText("Ouvir orientação do instrutor"));
+  expect(window.speechSynthesis.resume).toHaveBeenCalled();
+  expect(utterances).toHaveLength(1);
+  expect(request).not.toHaveBeenCalled();
 });

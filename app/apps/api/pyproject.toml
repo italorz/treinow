@@ -17,11 +17,6 @@ dependencies = [
   "slowapi>=0.1.9",
   "pandas>=2.2",
   "email-validator>=2.2",
-  # Kokoro espeak frontend; 2.x requires external phonemization/lexicons.
-  "sherpa-onnx==1.12.34",
-  # Explicit: the 1.x sdist metadata omits this native runtime dependency.
-  "sherpa-onnx-core==1.12.34",
-  "lameenc>=1.8",
 ]
 
 [dependency-groups]

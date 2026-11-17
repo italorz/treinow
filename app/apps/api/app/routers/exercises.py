@@ -7,10 +7,9 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.responses import JSONResponse, Response, StreamingResponse
+from starlette.responses import Response, StreamingResponse
 
 from ..config import config
-from ..speech import cached_speech, schedule_speech, split_script, SpeechUnavailable
 from ..catalog import active_catalog, profile_catalog, planning_exercise, preferred_video_variant
 from ..db import get_session, s3_client
 from ..mappers import exercise_detail, exercise_related, exercise_summary
@@ -107,71 +106,6 @@ async def get_video_url(exercise_id: str, db: AsyncSession = Depends(get_session
 
 async def _user_profile(db: AsyncSession, user: SessionUser) -> Profile | None:
     return (await db.execute(select(Profile).where(Profile.student_id == uuid.UUID(user.id)))).scalar_one_or_none()
-
-
-def _speech_text(exercise: Exercise) -> str:
-    text = (exercise.guidance or {}).get("narracao")
-    if not text or not text.strip():
-        raise HTTPException(404, "Narração não disponível")
-    return text
-
-
-@router.get("/exercises/{exercise_id}/speech")
-async def get_exercise_speech(exercise_id: str, db: AsyncSession = Depends(get_session), _user: SessionUser = Depends(require_user)):
-    text = _speech_text(await _require_exercise(db, exercise_id))
-    try:
-        speech = await cached_speech(text)
-    except SpeechUnavailable as exc:
-        return JSONResponse({"detail": str(exc)}, status_code=503)
-    if speech is None:
-        await schedule_speech(exercise_id, text)
-        return JSONResponse({"status": "preparing", "text": text,
-                             "lines": [{"text": line, "pause": pause * 1000} for line, pause in split_script(text)]}, status_code=202)
-    expires = int(time.time()) + 900
-    signature = media_signature(f"{exercise_id}:speech", expires)
-    return {"status": "ready", "audioUrl": f"{config.PUBLIC_URL}/v1/media/{exercise_id}/speech?expires={expires}&signature={signature}",
-            "cues": speech.cues, "durationSeconds": speech.duration, "text": text}
-
-
-@router.get("/media/{exercise_id}/speech")
-async def get_speech_media(exercise_id: str, request: Request, db: AsyncSession = Depends(get_session)):
-    try:
-        expiry = int(request.query_params.get("expires", "0"))
-    except ValueError:
-        raise HTTPException(403, "Expiração de mídia inválida")
-    signature = request.query_params.get("signature", "")
-    if expiry < time.time() or not safe_equal(signature, media_signature(f"{exercise_id}:speech", expiry)):
-        raise HTTPException(403, "URL de mídia inválida ou expirada")
-    text = _speech_text(await _require_exercise(db, exercise_id))
-    try:
-        speech = await cached_speech(text)
-    except SpeechUnavailable as exc:
-        return JSONResponse({"detail": str(exc)}, status_code=503)
-    if speech is None:
-        raise HTTPException(404, "Áudio ainda não disponível no cache")
-    total = len(speech.audio)
-    headers = {"cache-control": "private, max-age=86400", "accept-ranges": "bytes"}
-    start, end, status = 0, total - 1, 200
-    if value := request.headers.get("range"):
-        try:
-            match = re.fullmatch(r"bytes=(\d*)-(\d*)", value)
-            if not match or not any(match.groups()):
-                raise ValueError
-            first, last = match.groups()
-            if first:
-                start, end = int(first), min(int(last), total - 1) if last else total - 1
-            else:
-                length = int(last)
-                if length <= 0:
-                    raise ValueError
-                start = max(0, total - length)
-            if start >= total or end < start:
-                raise ValueError
-        except ValueError:
-            return Response(status_code=416, headers={**headers, "content-range": f"bytes */{total}"})
-        status = 206
-        headers["content-range"] = f"bytes {start}-{end}/{total}"
-    return Response(speech.audio[start:end + 1], status_code=status, media_type=speech.content_type, headers=headers)
 
 
 @router.get("/media/{exercise_id}")
