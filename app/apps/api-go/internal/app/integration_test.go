@@ -3,6 +3,8 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -12,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -41,7 +44,7 @@ func TestIntegrationIsolated(t *testing.T) {
 	if e = a.InitQueue(false); e != nil {
 		t.Fatal(e)
 	}
-	if _, e = a.DB.Exec(ctx, `TRUNCATE analytics_snapshots,consents,invitations,memberships,measurements,workout_logs,workout_sessions,workout_plans,profiles,exercises,tenants,users CASCADE`); e != nil {
+	if _, e = a.DB.Exec(ctx, `TRUNCATE river_job,analytics_snapshots,consents,invitations,memberships,measurements,workout_logs,workout_sessions,workout_plans,profiles,exercises,tenants,users CASCADE`); e != nil {
 		t.Fatal(e)
 	}
 	if e = a.Redis.FlushDB(ctx).Err(); e != nil {
@@ -217,8 +220,43 @@ func TestIntegrationIsolated(t *testing.T) {
 	if status, v := request(student, "GET", "/v1/exercises?limit=3&type=Strength&search=halter", nil); status != 200 || len(objects(v["items"])) == 0 {
 		t.Fatalf("catalog search %d %#v", status, v)
 	}
+	status, firstPage := request(student, "GET", "/v1/exercises?limit=3", nil)
+	if status != 200 || len(objects(firstPage["items"])) != 3 || str(firstPage["nextCursor"]) == "" {
+		t.Fatal("catalog pagination missing")
+	}
+	firstIDs := map[string]bool{}
+	for _, item := range objects(firstPage["items"]) {
+		firstIDs[str(item["id"])] = true
+		if item["video"] == nil || item["musclePrimary"] == nil || item["isWarmup"] == nil {
+			t.Fatal("catalog summary contract changed")
+		}
+	}
+	status, secondPage := request(student, "GET", "/v1/exercises?limit=3&cursor="+url.QueryEscape(str(firstPage["nextCursor"])), nil)
+	if status != 200 || len(objects(secondPage["items"])) != 3 {
+		t.Fatal("catalog next page failed")
+	}
+	for _, item := range objects(secondPage["items"]) {
+		if firstIDs[str(item["id"])] {
+			t.Fatal("catalog repeated an exercise from the previous page")
+		}
+	}
 	if status, _ = request(student, "GET", "/v1/exercises/muscle-summary", nil); status != 200 {
 		t.Fatal("muscle summary failed")
+	}
+	_, initialCounts := request(student, "GET", "/v1/exercises/muscle-summary", nil)
+	_, cachedCounts := request(student, "GET", "/v1/exercises/muscle-summary", nil)
+	if !bytes.Equal(jsonBytes(initialCounts), jsonBytes(cachedCounts)) {
+		t.Fatal("cached muscle counts changed")
+	}
+	revision, _ := a.Redis.Get(ctx, "go:catalog:hash").Result()
+	if n, _ := a.Redis.Exists(ctx, "go:muscle-summary:"+CatalogVersion+":"+revision+":masculino").Result(); n != 1 {
+		t.Fatal("muscle count cache not stored")
+	}
+	if status, _ = request(other, "GET", "/v1/exercises/muscle-summary", nil); status != 200 {
+		t.Fatal("unfiltered muscle counts failed")
+	}
+	if n, _ := a.Redis.Exists(ctx, "go:muscle-summary:"+CatalogVersion+":"+revision+":").Result(); n != 1 {
+		t.Fatal("profile variants shared a cache key")
 	}
 	if status, _ = request(student, "GET", "/v1/exercises/"+str(slot["id"]), nil); status != 200 {
 		t.Fatal("exercise detail failed")
@@ -227,7 +265,9 @@ func TestIntegrationIsolated(t *testing.T) {
 		t.Fatalf("signed video URL failed: %d %#v", status, v)
 	}
 	// No external storage or AI provider is contacted during these checks.
+	var storageCalls atomic.Int64
 	fakeStorage := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		storageCalls.Add(1)
 		w.Header().Set("Content-Type", "application/xml")
 		w.WriteHeader(404)
 		_, _ = io.WriteString(w, `<Error><Code>NoSuchKey</Code><Message>Missing test object</Message></Error>`)
@@ -245,7 +285,8 @@ func TestIntegrationIsolated(t *testing.T) {
 	if e = a.DB.QueryRow(ctx, "SELECT video FROM exercises WHERE id=$1", str(slot["id"])).Scan(&originalVideo); e != nil {
 		t.Fatal(e)
 	}
-	_, e = a.DB.Exec(ctx, "UPDATE exercises SET video=$1 WHERE id=$2", jsonBytes(M{"variants": M{"masculino": M{"fileName": "range.mp4", "objectKey": "exercises/range.mp4"}}}), str(slot["id"]))
+	localDigest := sha256.Sum256([]byte("0123456789"))
+	_, e = a.DB.Exec(ctx, "UPDATE exercises SET video=$1 WHERE id=$2", jsonBytes(M{"variants": M{"masculino": M{"fileName": "range.mp4", "objectKey": "exercises/range.mp4", "sha256": hex.EncodeToString(localDigest[:])}}}), str(slot["id"]))
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -260,6 +301,9 @@ func TestIntegrationIsolated(t *testing.T) {
 	rangeResponse.Body.Close()
 	if rangeResponse.StatusCode != 206 || string(rangeBody) != "2345" || rangeResponse.Header.Get("Content-Range") != "bytes 2-5/10" {
 		t.Fatalf("invalid media range: %d %s", rangeResponse.StatusCode, rangeBody)
+	}
+	if storageCalls.Load() != 0 {
+		t.Fatal("verified local video still contacted remote storage")
 	}
 	if status, _ = request(student, "GET", "/v1/media/"+str(slot["id"])+"?expires=1&variant=masculino&signature=invalid", nil); status != 403 {
 		t.Fatal("expired media URL accepted")

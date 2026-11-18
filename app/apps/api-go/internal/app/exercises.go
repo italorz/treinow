@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -169,25 +170,37 @@ func (a *App) listExercises(w http.ResponseWriter, r *http.Request, u Session) e
 		limit = max(1, min(v, 24))
 	}
 	args = append(args, limit)
-	rows, e := many(r.Context(), a.DB, "SELECT to_jsonb(e) FROM exercises e WHERE "+where+fmt.Sprintf(" ORDER BY id LIMIT $%d", len(args)), args...)
+	// Limit IDs before constructing JSON; sorting full rows serialized the entire catalog.
+	rows, e := many(r.Context(), a.DB, `SELECT jsonb_build_object(
+ 'id',e.id,'slug',e.slug,'name',e.name,'musclePrimary',e.muscle_primary,
+ 'equipment',e.equipment,'complexity',e.complexity,
+ 'requiresHighMindMuscleAwareness',e.requires_high_mind_muscle_awareness,
+ 'exerciseType',e.classification->'knowledge'->>'exerciseType',
+ 'isWarmup',e.is_warmup,'isStretch',e.is_stretch,'video',e.video)
+ FROM exercises e JOIN (SELECT id FROM exercises WHERE `+where+fmt.Sprintf(" ORDER BY id LIMIT $%d", len(args))+`) page USING(id) ORDER BY e.id`, args...)
 	if e != nil {
 		return e
-	}
-	out := []M{}
-	for _, v := range rows {
-		out = append(out, exerciseSummary(v))
 	}
 	var next any
 	if len(rows) == limit {
 		next = rows[len(rows)-1]["id"]
 	}
-	writeJSON(w, 200, M{"items": out, "nextCursor": next})
+	writeJSON(w, 200, M{"items": rows, "nextCursor": next})
 	return nil
 }
 func (a *App) muscleSummary(w http.ResponseWriter, r *http.Request, u Session) error {
 	p, e := a.profile(r.Context(), u.ID)
 	if e != nil {
 		return e
+	}
+	revision, _ := a.Redis.Get(r.Context(), "go:catalog:hash").Result()
+	cacheKey := "go:muscle-summary:" + CatalogVersion + ":" + revision + ":" + profileSex(p)
+	if cached, err := a.Redis.Get(r.Context(), cacheKey).Bytes(); err == nil {
+		var response M
+		if json.Unmarshal(cached, &response) == nil {
+			writeJSON(w, 200, response)
+			return nil
+		}
 	}
 	rows, e := a.DB.Query(r.Context(), `SELECT target,count(*) FROM exercises, jsonb_array_elements_text(classification->'knowledge'->'targetMuscles') target WHERE `+ActiveCatalogSQL+` AND ($1='' OR video->'variants' ? $1) GROUP BY target`, profileSex(p))
 	if e != nil {
@@ -206,7 +219,9 @@ func (a *App) muscleSummary(w http.ResponseWriter, r *http.Request, u Session) e
 	if e = rows.Err(); e != nil {
 		return e
 	}
-	writeJSON(w, 200, M{"counts": counts})
+	response := M{"counts": counts}
+	_ = a.Redis.Set(r.Context(), cacheKey, jsonBytes(response), 5*time.Minute).Err()
+	writeJSON(w, 200, response)
 	return nil
 }
 func (a *App) exerciseInfo(w http.ResponseWriter, r *http.Request, u Session) error {
@@ -218,7 +233,7 @@ func (a *App) exerciseInfo(w http.ResponseWriter, r *http.Request, u Session) er
 	if e != nil {
 		return e
 	}
-	rows, e := many(r.Context(), a.DB, `SELECT to_jsonb(e) FROM exercises e WHERE `+ActiveCatalogSQL+` AND id<>$1 AND NOT needs_review AND (is_warmup OR is_stretch) AND ($2='' OR video->'variants' ? $2) ORDER BY CASE WHEN target_key LIKE 'manguito_rotador_%' THEN 0 ELSE 1 END, CASE WHEN complexity='iniciante' THEN 0 ELSE 1 END,name`, str(ex["id"]), profileSex(p))
+	rows, e := many(r.Context(), a.DB, `SELECT `+planningCatalogRowSQL+` FROM exercises e WHERE `+ActiveCatalogSQL+` AND id<>$1 AND NOT needs_review AND (is_warmup OR is_stretch) AND ($2='' OR video->'variants' ? $2) ORDER BY CASE WHEN target_key LIKE 'manguito_rotador_%' THEN 0 ELSE 1 END, CASE WHEN complexity='iniciante' THEN 0 ELSE 1 END,name`, str(ex["id"]), profileSex(p))
 	if e != nil {
 		return e
 	}
@@ -331,11 +346,16 @@ func (a *App) media(w http.ResponseWriter, r *http.Request) error {
 			key = str(ex["muscle_primary"]) + "/" + kind + "/" + variant + "/" + file
 		}
 	}
+	// The image ships these assets; a matching digest avoids a cold Drive read.
+	if digest := str(selected["sha256"]); digest != "" && a.serveLocalVideo(w, r, file, digest) {
+		return nil
+	}
 	object, e := a.Storage.GetObject(r.Context(), bucket, key, minio.GetObjectOptions{})
 	if e == nil {
 		defer object.Close()
 		stat, err := object.Stat()
 		if err == nil {
+			w.Header().Set("X-Trainow-Media-Source", "storage")
 			w.Header().Set("Cache-Control", "private, max-age=300")
 			w.Header().Set("Content-Type", "video/mp4")
 			http.ServeContent(w, r, file, stat.LastModified, object)
@@ -343,18 +363,58 @@ func (a *App) media(w http.ResponseWriter, r *http.Request) error {
 		}
 		e = err
 	}
-	if a.Config.StorageProvider == "gdrive" && file != "" && filepath.Base(file) == file {
-		f, err := os.Open(filepath.Join(a.Config.VideosPath, file))
-		if err == nil {
-			defer f.Close()
-			stat, err := f.Stat()
-			if err == nil && stat.Mode().IsRegular() {
-				w.Header().Set("Cache-Control", "private, max-age=300")
-				w.Header().Set("Content-Type", "video/mp4")
-				http.ServeContent(w, r, file, stat.ModTime(), f)
-				return nil
-			}
-		}
+	if a.Config.StorageProvider == "gdrive" && a.serveLocalVideo(w, r, file, str(selected["sha256"])) {
+		return nil
 	}
 	return fail(503, "Vídeo temporariamente indisponível")
+}
+
+type verifiedVideo struct {
+	digest   string
+	size     int64
+	modified time.Time
+}
+
+func (a *App) serveLocalVideo(w http.ResponseWriter, r *http.Request, name, digest string) bool {
+	if name == "" || filepath.Base(name) != name {
+		return false
+	}
+	path := filepath.Join(a.Config.VideosPath, name)
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	info, err = f.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	if digest != "" {
+		expected, err := hex.DecodeString(digest)
+		if err != nil || len(expected) != sha256.Size {
+			return false
+		}
+		cached, ok := a.videoHashes.Load(path)
+		previous, _ := cached.(verifiedVideo)
+		if !ok || previous.digest != digest || previous.size != info.Size() || !previous.modified.Equal(info.ModTime()) {
+			h := sha256.New()
+			if _, err = io.Copy(h, f); err != nil || !hmac.Equal(h.Sum(nil), expected) {
+				return false
+			}
+			a.videoHashes.Store(path, verifiedVideo{digest, info.Size(), info.ModTime()})
+			if _, err = f.Seek(0, io.SeekStart); err != nil {
+				return false
+			}
+		}
+		w.Header().Set("ETag", `"`+digest+`"`)
+	}
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	w.Header().Set("Content-Type", "video/mp4")
+	w.Header().Set("X-Trainow-Media-Source", "local")
+	http.ServeContent(w, r, name, info.ModTime(), f)
+	return true
 }

@@ -16,6 +16,19 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+const planningCatalogRowSQL = `jsonb_build_object(
+ 'id',e.id,'name',e.name,'name_raw',e.name_raw,'muscle_primary',e.muscle_primary,
+ 'equipment',e.equipment,'complexity',e.complexity,'target_key',e.target_key,
+ 'is_warmup',e.is_warmup,'is_stretch',e.is_stretch,'joints',e.joints,
+ 'contraindications',e.contraindications,'video',e.video,
+ 'classification',jsonb_build_object('derivedFields',e.classification->'derivedFields',
+  'knowledge',jsonb_build_object(
+   'targetMuscles',e.classification->'knowledge'->'targetMuscles',
+   'exerciseType',e.classification->'knowledge'->'exerciseType',
+   'equipment',e.classification->'knowledge'->'equipment',
+   'sourceScores',e.classification->'knowledge'->'sourceScores',
+   'measurement',e.classification->'knowledge'->'measurement')))`
+
 func fileHash(path string) (string, error) {
 	f, e := os.Open(path)
 	if e != nil {

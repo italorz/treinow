@@ -1,24 +1,10 @@
 import { useExerciseMedia } from "./narration";
 import { X, ZoomIn } from "lucide-react";
 import { useEffect, useRef, useState, type SyntheticEvent } from "react";
-import { api } from "./api";
+import { getVideoUrl } from "./video-source";
+export { clearVideoCache } from "./video-source";
 
 const blockContextMenu = (e: SyntheticEvent) => e.preventDefault();
-const videoUrls = new Map<string, { url: string; expiresAt: number }>();
-
-export function clearVideoCache() {
-  videoUrls.clear();
-}
-
-async function getVideoUrl(id: string, variant = "") {
-  const key = `${id}:${variant}`;
-  const cached = videoUrls.get(key);
-  if (cached && cached.expiresAt > Date.now()) return cached.url;
-  const data = await api<{ url: string }>(`/exercises/${id}/video-url${variant ? `?variant=${encodeURIComponent(variant)}` : ""}`);
-  videoUrls.set(key, { url: data.url, expiresAt: Date.now() + 4 * 60_000 });
-  return data.url;
-}
-
 // Reproduz o vídeo do exercício automaticamente, em loop, como uma miniatura
 // animada. A lupa abre o mesmo modal limitado usado na biblioteca. Download
 // desabilitado em todos os players: sem botão

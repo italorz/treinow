@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -66,6 +67,7 @@ type App struct {
 	Queue        *river.Client[pgx.Tx]
 	Now          func() time.Time
 	ProviderHTTP *http.Client
+	videoHashes  sync.Map
 }
 
 func Open(ctx context.Context, c Config) (*App, error) {
@@ -330,7 +332,7 @@ func (a *App) Router() http.Handler {
 }
 func (a *App) health(w http.ResponseWriter, r *http.Request) error {
 	var active, retired int
-	e := a.DB.QueryRow(r.Context(), "SELECT count(*) FILTER(WHERE "+ActiveCatalogSQL+"),count(*) FILTER(WHERE NOT is_active) FROM exercises").Scan(&active, &retired)
+	e := a.DB.QueryRow(r.Context(), "SELECT (SELECT count(*) FROM exercises WHERE "+ActiveCatalogSQL+"),(SELECT count(*) FROM exercises WHERE NOT is_active)").Scan(&active, &retired)
 	if e != nil {
 		return e
 	}

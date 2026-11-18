@@ -18,6 +18,8 @@ River provides transactional, durable background jobs in PostgreSQL; Redis conti
 
 The worker streams catalog imports and does not keep a global catalog loaded between jobs. Plan generation loads only the required catalog metadata, excluding narration and guidance bodies. S3 video responses stream with byte ranges; files are not loaded into memory. Passwords retain the Python scrypt format, with a bounded hashing concurrency. Gemini is optional and always falls back to the validated rules engine; no identifying account data enters prompts.
 
+Videos bundled in the image are served locally first when their SHA-256 matches the catalog. Missing or mismatched copies use remote storage instead. Responses preserve signed-link checks, byte ranges and conditional requests; `X-Trainow-Media-Source` identifies the selected tier. The frontend shares concurrent signed-URL requests without retaining data across account changes. Catalog pagination selects IDs before constructing response JSON, with an ordered active-catalog index and a short-lived, catalog-revision-aware cache for public muscle counts.
+
 ## Authorized Tests Only
 
 ```sh

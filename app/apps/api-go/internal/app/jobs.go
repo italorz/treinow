@@ -174,7 +174,7 @@ func (a *App) generateWorkout(ctx context.Context, student string) error {
 	if e = validateInjuries(objects(p["injuries"])); e != nil {
 		return river.JobCancel(e)
 	}
-	rows, e := many(ctx, a.DB, `SELECT to_jsonb(e)-'guidance'-'created_at'-'updated_at' FROM exercises e WHERE `+ActiveCatalogSQL+` AND NOT needs_review AND ($1='' OR video->'variants' ? $1) ORDER BY id`, profileSex(p))
+	rows, e := many(ctx, a.DB, `SELECT `+planningCatalogRowSQL+` FROM exercises e WHERE `+ActiveCatalogSQL+` AND NOT needs_review AND ($1='' OR video->'variants' ? $1) ORDER BY id`, profileSex(p))
 	if e != nil {
 		return e
 	}

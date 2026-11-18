@@ -70,3 +70,5 @@ CREATE INDEX IF NOT EXISTS go_logs_student_completed ON workout_logs(student_id,
 CREATE INDEX IF NOT EXISTS go_membership_tenant_status ON memberships(tenant_id,status);
 CREATE INDEX IF NOT EXISTS go_consent_active ON consents(membership_id) WHERE revoked_at IS NULL;
 CREATE INDEX IF NOT EXISTS go_invitation_token ON invitations(token_hash);
+CREATE INDEX IF NOT EXISTS go_active_catalog_id ON exercises(id)
+ WHERE is_active AND classification->>'source'='appdb-catalog-v2';
